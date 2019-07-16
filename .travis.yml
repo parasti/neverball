@@ -9,8 +9,8 @@ services:
 before_install:
   - docker pull parasti/neverball-mingw
 script:
-  - make -j2 sols # Build sols with a native mapc.
-  - make clean-src # Remove the native mapc.
+  #- make -j2 sols # Build sols with a native mapc.
+  #- make clean-src # Remove the native mapc.
   - >
     docker run
     --rm
