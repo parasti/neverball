@@ -4,20 +4,19 @@ addons:
   apt:
     packages:
       - libsdl2-dev
-      - libsdl2-ttf-dev
-      - libvorbis-dev
-      - libjpeg-dev
-matrix:
-  include:
-    - env: BINARY=neverball
-      name: neverball
-    - env: BINARY=neverputt
-      name: neverputt
-    - env: BINARY=mapc
-      name: mapc
-      addons:
-        apt:
-          packages:
-            - libsdl2-dev
+services:
+  - docker
+before_install:
+  - docker pull parasti/neverball-mingw
 script:
-  - make -j2 $BINARY
+  - make -j2 sols # Build sols with a native mapc.
+  - make clean-src # Remove the native mapc.
+  - >
+    docker run
+    --rm
+    --volume "$(pwd)":/neverball
+    --workdir /neverball
+    --user $(id -u):$(id -g)
+    parasti/neverball-mingw
+    sh -c 'mingw32-make PLATFORM=mingw neverball.exe neverputt.exe mapc.exe; mingw-list-deps --copy *.exe;'
+  - ls # todo deploy
