@@ -20,6 +20,10 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>

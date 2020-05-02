@@ -226,6 +226,14 @@ static int loop(void)
         case SDL_QUIT:
             return 0;
 
+        case SDL_USEREVENT:
+            printf("got user event %d\n", e.user.code);
+
+            if (e.user.code == -1)
+                d = st_keybd(KEY_EXIT, 1);
+
+            break;
+
         case SDL_MOUSEMOTION:
             /* Convert to OpenGL coordinates. */
 
@@ -367,6 +375,24 @@ static int loop(void)
 
     return d;
 }
+
+#ifdef __EMSCRIPTEN__
+void EMSCRIPTEN_KEEPALIVE push_user_event(int code)
+{
+    SDL_Event e = { SDL_USEREVENT };
+    e.user.code = code;
+    SDL_PushEvent(&e);
+}
+
+void add_popstate_listener(void)
+{
+    EM_ASM({
+        window.addEventListener('popstate', function (event) {
+            Module._push_user_event(-1);
+        });
+    });
+}
+#endif
 
 /*---------------------------------------------------------------------------*/
 
@@ -569,6 +595,10 @@ static void step(void *data)
 int main(int argc, char *argv[])
 {
     struct main_loop mainloop = { 0 };
+
+    #ifdef __EMSCRIPTEN__
+    add_popstate_listener();
+    #endif
 
     if (!fs_init(argc > 0 ? argv[0] : NULL))
     {

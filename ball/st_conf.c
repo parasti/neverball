@@ -242,7 +242,11 @@ static void null_leave(struct state *st, struct state *next, int id)
     NULL,
     common_click,
     common_keybd,
-    common_buttn
+    common_buttn,
+
+#ifdef __EMSCRIPTEN__
+    .name = "options"
+#endif
 };
 
 struct state st_null = {

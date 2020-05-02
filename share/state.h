@@ -18,6 +18,10 @@ struct state
     void (*wheel)(int x,  int y);
 
     int gui_id;
+
+#ifdef __EMSCRIPTEN__
+    char name[64];
+#endif
 };
 
 struct state *curr_state(void);
