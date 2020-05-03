@@ -19,9 +19,7 @@ struct state
 
     int gui_id;
 
-#ifdef __EMSCRIPTEN__
     char name[64];
-#endif
 };
 
 struct state *curr_state(void);
@@ -29,6 +27,9 @@ struct state *curr_state(void);
 float time_state(void);
 void  init_state(struct state *);
 int   goto_state(struct state *);
+
+int   push_state(struct state *);
+int   pop_state(void);
 
 void st_paint(float);
 void st_timer(float);

@@ -59,11 +59,11 @@ static int help_action(int tok, int val)
     {
     case GUI_BACK:
         page = PAGE_RULES;
-        return goto_state(&st_title);
+        return pop_state();
 
     case HELP_DEMO:
         if (demo_replay_init(demos[val], NULL, NULL, NULL, NULL, NULL))
-            return goto_state(&st_help_demo);
+            return push_state(&st_help_demo);
         break;
 
     case HELP_PAGE:
@@ -422,7 +422,7 @@ static void help_demo_timer(int id, float dt)
     game_step_fade(dt);
 
     if (!demo_replay_step(dt))
-        goto_state(&st_help);
+        pop_state();
 
     game_client_blend(demo_replay_blend());
 }
@@ -432,7 +432,7 @@ static int help_demo_keybd(int c, int d)
     if (d)
     {
         if (c == KEY_EXIT)
-            return goto_state(&st_help);
+            return pop_state();
     }
     return 1;
 }
@@ -442,7 +442,7 @@ static int help_demo_buttn(int b, int d)
     if (d)
     {
         if (config_tst_d(CONFIG_JOYSTICK_BUTTON_B, b))
-            return goto_state(&st_help);
+            return pop_state();
     }
     return 1;
 }
@@ -458,7 +458,9 @@ struct state st_help = {
     shared_angle,
     shared_click,
     help_keybd,
-    help_buttn
+    help_buttn,
+
+    .name = "help"
 };
 
 struct state st_help_demo = {
@@ -471,5 +473,7 @@ struct state st_help_demo = {
     NULL,
     NULL,
     help_demo_keybd,
-    help_demo_buttn
+    help_demo_buttn,
+
+    .name = "help/demo"
 };

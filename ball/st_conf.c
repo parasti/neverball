@@ -87,15 +87,15 @@ static int conf_action(int tok, int val)
     switch (tok)
     {
     case GUI_BACK:
-        goto_state(&st_title);
+        pop_state();
         break;
 
     case CONF_VIDEO:
-        goto_state(&st_video);
+        push_state(&st_video);
         break;
 
     case CONF_LANGUAGE:
-        goto_state(&st_lang);
+        push_state(&st_lang);
         break;
 
     case CONF_PLAYER:
@@ -103,7 +103,7 @@ static int conf_action(int tok, int val)
         break;
 
     case CONF_BALL:
-        goto_state(&st_ball);
+        push_state(&st_ball);
         break;
 
     case CONF_MOUSE_SENSE:
@@ -244,9 +244,7 @@ static void null_leave(struct state *st, struct state *next, int id)
     common_keybd,
     common_buttn,
 
-#ifdef __EMSCRIPTEN__
     .name = "options"
-#endif
 };
 
 struct state st_null = {

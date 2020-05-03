@@ -208,5 +208,7 @@ struct state st_set = {
     shared_angle,
     shared_click,
     set_keybd,
-    set_buttn
+    set_buttn,
+
+    .name = "play"
 };

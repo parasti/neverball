@@ -821,7 +821,9 @@ struct state st_demo = {
     shared_angle,
     shared_click,
     demo_keybd,
-    demo_buttn
+    demo_buttn,
+
+    .name = "replays"
 };
 
 struct state st_demo_play = {

@@ -226,14 +226,17 @@ static int loop(void)
         case SDL_QUIT:
             return 0;
 
+#ifdef __EMSCRIPTEN__
         case SDL_USEREVENT:
-            printf("got user event %d\n", e.user.code);
-
             if (e.user.code == -1)
+            {
+                extern int from_popstate_event;
+                from_popstate_event = 1;
                 d = st_keybd(KEY_EXIT, 1);
-
+                from_popstate_event = 0;
+            }
             break;
-
+#endif
         case SDL_MOUSEMOTION:
             /* Convert to OpenGL coordinates. */
 
@@ -389,6 +392,7 @@ void add_popstate_listener(void)
     EM_ASM({
         window.addEventListener('popstate', function (event) {
             Module._push_user_event(-1);
+            // TODO: prevent forward navigation.
         });
     });
 }
@@ -688,7 +692,7 @@ int main(int argc, char *argv[])
             goto_state(&st_title);
     }
     else
-        goto_state(&st_title);
+        push_state(&st_title);
 
     /* Run the main game loop. */
 

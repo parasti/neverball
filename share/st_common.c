@@ -252,7 +252,7 @@ static int video_action(int tok, int val)
     switch (tok)
     {
     case GUI_BACK:
-        goto_state(video_back);
+        pop_state();
         video_back = NULL;
         break;
 
@@ -263,7 +263,7 @@ static int video_action(int tok, int val)
         break;
 
     case VIDEO_DISPLAY:
-        goto_state(&st_display);
+        push_state(&st_display);
         break;
 
     case VIDEO_REFLECTION:
@@ -286,7 +286,7 @@ static int video_action(int tok, int val)
         break;
 
     case VIDEO_RESOLUTION:
-        goto_state(&st_resol);
+        push_state(&st_resol);
         break;
 
     case VIDEO_VSYNC:
@@ -418,7 +418,7 @@ static int display_action(int tok, int val)
     switch (tok)
     {
     case GUI_BACK:
-        goto_state(display_back);
+        pop_state();
         display_back = NULL;
         break;
 
@@ -514,7 +514,7 @@ static int resol_action(int tok, int val)
     switch (tok)
     {
     case GUI_BACK:
-        goto_state(resol_back);
+        pop_state();
         resol_back = NULL;
         break;
 
@@ -737,7 +737,9 @@ struct state st_video = {
     NULL,
     common_click,
     common_keybd,
-    common_buttn
+    common_buttn,
+
+    .name = "options/graphics"
 };
 
 struct state st_display = {
@@ -750,7 +752,9 @@ struct state st_display = {
     NULL,
     common_click,
     common_keybd,
-    common_buttn
+    common_buttn,
+
+    .name = "options/graphics/display"
 };
 
 struct state st_resol = {
@@ -763,7 +767,9 @@ struct state st_resol = {
     NULL,
     common_click,
     common_keybd,
-    common_buttn
+    common_buttn,
+
+    .name = "options/graphics/resolution"
 };
 
 struct state st_lang = {
@@ -776,7 +782,9 @@ struct state st_lang = {
     NULL,
     common_click,
     common_keybd,
-    common_buttn
+    common_buttn,
+
+    .name = "options/language"
 };
 
 /*---------------------------------------------------------------------------*/

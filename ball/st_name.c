@@ -44,7 +44,10 @@ int goto_name(struct state *ok, struct state *cancel, unsigned int back)
     cancel_state = cancel;
     draw_back    = back;
 
-    return goto_state(&st_name);
+    if (ok_state == cancel_state)
+        return push_state(&st_name);
+    else
+        return goto_state(&st_name);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -63,7 +66,7 @@ static int name_action(int tok, int val)
     switch (tok)
     {
     case GUI_BACK:
-        return goto_state(cancel_state);
+        return (ok_state == cancel_state) ? pop_state() : goto_state(cancel_state);
 
     case NAME_OK:
         if (strlen(text_input) == 0)
@@ -73,7 +76,7 @@ static int name_action(int tok, int val)
 
         config_save();
 
-        return goto_state(ok_state);
+        return (ok_state == cancel_state) ? pop_state() : goto_state(ok_state);
 
     case GUI_CL:
         gui_keyboard_lock();

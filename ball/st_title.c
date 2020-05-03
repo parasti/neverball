@@ -106,12 +106,12 @@ static int title_action(int tok, int val)
         if (strlen(config_get_s(CONFIG_PLAYER)) == 0)
             return goto_name(&st_set, &st_title, 0);
         else
-            return goto_state(&st_set);
+            return push_state(&st_set);
         break;
 
-    case TITLE_HELP: return goto_state(&st_help); break;
-    case TITLE_DEMO: return goto_state(&st_demo); break;
-    case TITLE_CONF: return goto_state(&st_conf); break;
+    case TITLE_HELP: return push_state(&st_help); break;
+    case TITLE_DEMO: return push_state(&st_demo); break;
+    case TITLE_CONF: return push_state(&st_conf); break;
     case GUI_CHAR:
 
         /* Let the queue fill up. */
@@ -203,11 +203,6 @@ static int filter_cmd(const union cmd *cmd)
 
 static int title_enter(struct state *st, struct state *prev)
 {
-#ifdef __EMSCRIPTEN__
-    EM_ASM({
-        window.history.replaceState(null, null, '/');
-    });
-#endif
     game_proxy_filter(filter_cmd);
 
     /* Start the title screen music. */
@@ -228,13 +223,6 @@ static int title_enter(struct state *st, struct state *prev)
 
 static void title_leave(struct state *st, struct state *next, int id)
 {
-#ifdef __EMSCRIPTEN__
-    EM_ASM({
-        var url = UTF8ToString($0);
-        window.history.pushState(null, null, url);
-    }, next->name);
-#endif
-
     if (items)
     {
         demo_dir_free(items);
@@ -359,6 +347,8 @@ struct state st_title = {
     shared_angle,
     shared_click,
     title_keybd,
-    title_buttn
+    title_buttn,
+
+    .name = "title"
 };
 

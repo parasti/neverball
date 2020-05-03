@@ -141,6 +141,82 @@ int goto_state(struct state *st)
     return 1;
 }
 
+static const unsigned int STATE_STACK_MAX = 8u;
+static unsigned int state_stack_depth = 0;
+static struct state *state_stack[STATE_STACK_MAX] = { };
+
+/*
+ * Like goto_state, but push current state on a stack.
+ */
+int push_state(struct state *st)
+{
+#ifdef __EMSCRIPTEN__
+    if (st)
+    {
+        EM_ASM({
+            var name = UTF8ToString($0);
+            window.history.pushState({name: name}, null, '#!/' + name);
+        }, st->name);
+    }
+#endif
+    if (state_stack_depth <= STATE_STACK_MAX)
+    {
+        ++state_stack_depth;
+        state_stack[STATE_STACK_MAX - state_stack_depth] = state;
+    }
+    else log_printf("Max state stack size reached\n");
+
+    return goto_state(st);
+}
+
+#ifdef __EMSCRIPTEN__
+/* In Emscripten, window.history.back() triggers a popstate event,
+ * which in turn simulates an Esc keypress, which ends up here
+ * once more, but this time the Neverball state is actually popped.
+ * It's convoluted, but lets us support both a GUI back button and
+ * the browser back button.
+ */
+int from_popstate_event = 0;
+#endif
+
+/*
+ * Like goto_state, but pop from the stack and go to that state.
+ */
+int pop_state(void)
+{
+#ifdef __EMSCRIPTEN__
+    // Do nothing until we return from a popstate event.
+
+    if (!from_popstate_event)
+    {
+        // Return here via a popstate event (browser back navigation).
+        EM_ASM({ window.history.back(); });
+        return 1;
+    }
+
+#endif
+    struct state *st = NULL;
+
+    if (state_stack_depth > 0)
+    {
+        st = state_stack[STATE_STACK_MAX - state_stack_depth];
+        state_stack_depth--;
+    }
+    else log_printf("Attempted to pop an empty state stack\n");
+
+    return goto_state(st);
+}
+
+#ifdef __EMSCRIPTEN__
+void EMSCRIPTEN_KEEPALIVE dump_state_stack(void)
+{
+    printf("state stack from top:\n");
+
+    for (size_t i = state_stack_depth; i < STATE_STACK_MAX; i++)
+        printf("  %s\n", state_stack[i] ? state_stack[i]->name : "(null)");
+}
+#endif
+
 /*---------------------------------------------------------------------------*/
 
 void st_paint(float t)
