@@ -511,14 +511,14 @@ static void read_ball_basis(FILE *fp)
 			a2iv[curr] = *(int *) &v[2];
 			a3iv[curr] = *(int *) &aa;
 
-			// Deinterleaved uint16s. Angle encoded as vector length.
-
-			// v_scl(v, v, aa);
+			// Deinterleaved uint16s.
 
 			a0uv[curr] = 0x7fff + v[0] * 0x7fff;
 			a1uv[curr] = 0x7fff + v[1] * 0x7fff;
 			a2uv[curr] = 0x7fff + v[2] * 0x7fff;
 			a3uv[curr] = 0x7fff + aa * 0x7fff;
+
+			// Spherical coords and angle packed into a 32-bit int.
 
                         float theta, phi, sa;
 
@@ -526,7 +526,7 @@ static void read_ball_basis(FILE *fp)
                         phi = fatan2f(v[1], v[0]) / V_PI;
                         sa = a / V_PI;
 
-                        // 11 bits per basis, 10 bits for angle.
+                        // 11 bits per coord, 10 bits for angle.
                         unsigned short utheta = 0x3ff + 0x3ff * theta;
                         unsigned short uphi = 0x3ff + 0x3ff * theta;
                         unsigned short uangle = 0x1ff + 0x1ff * sa;
@@ -586,6 +586,8 @@ static void read_ball_basis(FILE *fp)
 	fwrite(a2iv, sizeof (int), total, out6);
 	fwrite(a3iv, sizeof (int), total, out6);
 
+        // Transposed deinterleaved axis-angle.
+
 	xpose_encode(a0iv, total);
 	xpose_encode(a1iv, total);
 	xpose_encode(a2iv, total);
@@ -596,10 +598,14 @@ static void read_ball_basis(FILE *fp)
 	fwrite(a2iv, sizeof (int), total, out7);
 	fwrite(a3iv, sizeof (int), total, out7);
 
+	// Unsigned 16-bit deinterleaved axis-angle.
+
 	fwrite(a0uv, sizeof (uint16_t), total, out8);
 	fwrite(a1uv, sizeof (uint16_t), total, out8);
 	fwrite(a2uv, sizeof (uint16_t), total, out8);
 	fwrite(a3uv, sizeof (uint16_t), total, out8);
+
+        // XOR-encoded 16-bit deinterleaved axis-angle.
 
 	xor_encode_u16(a0uv, total);
 	xor_encode_u16(a1uv, total);
@@ -611,11 +617,9 @@ static void read_ball_basis(FILE *fp)
 	fwrite(a2uv, sizeof (uint16_t), total, out9);
 	fwrite(a3uv, sizeof (uint16_t), total, out9);
 
+	// XOR-encoded packed 32-bit axis-angle.
+
         xor_encode(siv, total);
-
-        //fwrite(siv, sizeof (int), total, out10);
-
-        xpose_encode(siv, total);
 
         fwrite(siv, sizeof (int), total, out10);
 }
