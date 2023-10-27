@@ -132,6 +132,10 @@ void   m_vxfm(float *, const float *, const float *);
 
 /*---------------------------------------------------------------------------*/
 
+float v_axisangle(float v[3], const float e0[3], const float e1[3]);
+
+/*---------------------------------------------------------------------------*/
+
 #define q_dot(q, r) ((q)[0] * (r)[0] + v_dot((q) + 1, (r) + 1))
 #define q_len(q)    fsqrtf(q_dot((q), (q)))
 

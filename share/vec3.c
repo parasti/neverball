@@ -277,6 +277,57 @@ void m_vxfm(float *v, const float *M, const float *w)
 
 /*---------------------------------------------------------------------------*/
 
+/*
+ * Calculate rotation axis and angle from basis vectors.
+ */
+float v_axisangle(float u[3], const float x[3], const float y[3])
+{
+    const float X[3] = { 1, 0, 0 };
+    const float Y[3] = { 0, 1, 0 };
+    const float Z[3] = { 0, 0, 1 };
+
+    float xx[3];
+    float yy[3];
+    float zz[3];
+
+    float z[3], tr, a;
+
+    v_crs(z, x, y);
+    v_nrm(z, z);
+
+    /* Find the rotation axis. */
+
+    v_crs(xx, X, x);
+    v_crs(yy, Y, y);
+    v_crs(zz, Z, z);
+
+    v_add(u, xx, yy);
+    v_add(u, u, zz);
+
+    if (u[0] == 0.0f && u[1] == 0.0f && u[2] == 0.0f)
+    {
+        /* Rotation axis must be one of the basis vectors. */
+
+        if (x[0] > y[1] && x[0] > z[2])
+            v_cpy(u, X);
+        else if (y[1] > z[2])
+            v_cpy(u, Y);
+        else
+            v_cpy(u, Z);
+    }
+    else
+        v_nrm(u, u);
+
+    /* Calculate rotation angle from the matrix trace. */
+
+    tr = x[0] + y[1] + z[2];
+    a = facosf((tr - 1.0f) / 2.0f);
+
+    return a;
+}
+
+/*---------------------------------------------------------------------------*/
+
 void q_as_axisangle(const float q[4], float u[3], float *a)
 {
     *a = 2.0f * facosf(q[0]);
