@@ -60,6 +60,7 @@ const GLubyte gui_shd[4] = { 0x00, 0x00, 0x00, 0x80 };  /* Shadow */
 #define GUI_SPACE  10
 #define GUI_BUTTON 11
 #define GUI_ROOT   12
+#define GUI_MULTI  13
 
 #define GUI_STATE  1
 #define GUI_FILL   2
@@ -67,8 +68,89 @@ const GLubyte gui_shd[4] = { 0x00, 0x00, 0x00, 0x80 };  /* Shadow */
 #define GUI_RECT   8
 #define GUI_LAYOUT 16
 #define GUI_CLIP   32
+#define GUI_RECT_FORCE 64
 
 #define GUI_LINES 8
+
+/*---------------------------------------------------------------------------*/
+
+struct anim
+{
+    float start;
+    float target;
+    float duration;
+
+    float value;
+    float time;
+
+    unsigned int at_start:1;
+    unsigned int at_target:1;
+};
+
+void anim_dump(struct anim a)
+{
+    printf(
+        "( %f %f %f ) ( %f %f ) ( %u %u )\n",
+        a.start,
+        a.target,
+        a.duration,
+        a.value,
+        a.time,
+        a.at_start,
+        a.at_target
+    );
+}
+
+static struct anim anim_none(void)
+{
+    struct anim a = { 0 };
+
+    a.at_target = 1;
+
+    return a;
+}
+
+static struct anim anim_make(float start, float target, float duration)
+{
+    struct anim a = { 0 };
+
+    a.start = start;
+    a.target = target;
+    a.duration = duration;
+
+    a.value = start;
+    a.time = 0.0f;
+
+    a.at_start = 1u;
+    a.at_target = 0;
+
+    anim_dump(a);
+
+    return a;
+}
+
+static struct anim anim_step(struct anim a, float dt)
+{
+    if (!a.at_target && a.duration > 0.0f && a.target - a.start != 0.0f)
+    {
+        float s = 0.0f;
+
+        a.at_start = 0;
+        a.time = MIN(a.time + dt, a.duration);
+
+        s = a.time / a.duration;
+
+        a.value = a.start + (a.target - a.start) * s;
+
+        if (s >= 1.0f)
+        {
+            a.at_target = 1u;
+            a.value = a.target;
+        }
+    }
+
+    return a;
+}
 
 /*---------------------------------------------------------------------------*/
 
@@ -81,6 +163,7 @@ struct widget
     int     font;
     int     size;
     int     rect;
+    int     hidden;
 
     char   *text;
 
@@ -94,15 +177,24 @@ struct widget
     const GLubyte *color1;
 
     int     x, y;
-    int     w, h;
-    int     car;
-    int     cdr;
+    int     w, h; /* Widget size         */
+    int     car;  /* First child         */
+    int     cdr;  /* Next sibling        */
+
+    int     parent;
+    int     target;
 
     GLuint  image;
     GLfloat scale;
 
     int     text_w;
     int     text_h;
+
+    struct anim pan_x;
+    struct anim pan_y;
+
+    float pan_max_x;
+    float pan_max_y;
 
     enum trunc trunc;
 };
@@ -135,7 +227,7 @@ static struct theme curr_theme;
 
 static int gui_hot(int id)
 {
-    return (widget[id].flags & GUI_STATE);
+    return (widget[id].flags & GUI_STATE && !widget[id].hidden);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -374,7 +466,7 @@ static void gui_geom_image(int id, int x, int y, int w, int h, int f)
     glBindBuffer_   (GL_ARRAY_BUFFER, 0);
 }
 
-static void gui_geom_widget(int id, int flags)
+static void gui_geom_widget(int id)
 {
     int jd;
 
@@ -388,11 +480,8 @@ static void gui_geom_widget(int id, int flags)
     const GLubyte *c0 = widget[id].color0;
     const GLubyte *c1 = widget[id].color1;
 
-    if ((widget[id].flags & GUI_RECT) && !(flags & GUI_RECT))
-    {
+    if ((widget[id].flags & GUI_RECT))
         gui_geom_rect(id, -w / 2, -h / 2, w, h, R);
-        flags |= GUI_RECT;
-    }
 
     switch (widget[id].type)
     {
@@ -404,9 +493,10 @@ static void gui_geom_widget(int id, int flags)
     case GUI_VARRAY:
     case GUI_HSTACK:
     case GUI_VSTACK:
+    case GUI_MULTI:
 
         for (jd = widget[id].car; jd; jd = widget[jd].cdr)
-            gui_geom_widget(jd, flags);
+            gui_geom_widget(jd);
 
         break;
 
@@ -729,6 +819,7 @@ static int gui_widget(int pd, int type)
             widget[id].font   = 0;
             widget[id].size   = 0;
             widget[id].rect   = GUI_ALL;
+            widget[id].hidden = 0;
             widget[id].x      = 0;
             widget[id].y      = 0;
             widget[id].w      = 0;
@@ -740,6 +831,12 @@ static int gui_widget(int pd, int type)
             widget[id].trunc  = TRUNC_NONE;
             widget[id].text_w = 0;
             widget[id].text_h = 0;
+
+            memset(&widget[id].pan_x, 0, sizeof (struct anim));
+            memset(&widget[id].pan_y, 0, sizeof (struct anim));
+
+            widget[id].pan_max_x = 0.0f;
+            widget[id].pan_max_y = 0.0f;
 
             widget[id].init_text = NULL;
             widget[id].init_value = 0;
@@ -754,12 +851,18 @@ static int gui_widget(int pd, int type)
                 widget[id].car = 0;
                 widget[id].cdr = widget[pd].car;
                 widget[pd].car = id;
+
+                widget[id].parent = pd;
             }
             else
             {
                 widget[id].car = 0;
                 widget[id].cdr = 0;
+
+                widget[id].parent = 0;
             }
+
+            widget[id].target = 0;
 
             return id;
         }
@@ -982,22 +1085,37 @@ void gui_set_color(int id, const GLubyte *c0,
     }
 }
 
+static void gui_render_text(int id);
+
+static void gui_multi_update(int id)
+{
+    if (widget[id].type == GUI_MULTI)
+    {
+        int scroll_id = widget[id].car;
+        int down_id = widget[scroll_id].cdr;
+        int up_id = widget[down_id].cdr;
+
+        widget[up_id].hidden = widget[scroll_id].pan_y.value <= 0.0f;
+        widget[down_id].hidden = widget[scroll_id].pan_y.value >= widget[scroll_id].pan_max_y;
+    }
+}
+
 void gui_set_multi(int id, const char *text)
 {
     const char *p;
 
     char s[GUI_LINES][MAXSTR];
-    int i, sc, lc, jd;
+    int i, sc;
 
     size_t n = 0;
 
-    /* Count available labels. */
+    int scroll_id = widget[id].car;
 
-    for (lc = 0, jd = widget[id].car; jd; lc++, jd = widget[jd].cdr);
+    int lh = widget[widget[scroll_id].car].h; /* Height of first label. */
 
     /* Copy each delimited string to a line buffer. */
 
-    for (p = text, sc = 0; *p && sc < lc; sc++)
+    for (p = text, sc = 0; *p && sc < GUI_LINES; sc++)
     {
         /* Support both '\\' and '\n' as delimiters. */
 
@@ -1012,10 +1130,39 @@ void gui_set_multi(int id, const char *text)
         if (*p == '\\' || *p == '\n') p++;
     }
 
-    /* Set the label value for each line. */
+    /* Delete the existing labels. */
 
-    for (i = lc - 1, jd = widget[id].car; i >= 0; i--, jd = widget[jd].cdr)
-        gui_set_label(jd, i < sc ? s[i] : "");
+    gui_delete_children(scroll_id);
+
+    /* Create a new label for each line. */
+
+    for (i = 0; i < sc; i++)
+    {
+        int jd = gui_label(scroll_id, s[i], widget[scroll_id].size,
+                                            widget[scroll_id].color0,
+                                            widget[scroll_id].color1);
+
+        /* Position within parent. */
+
+        widget[jd].x = widget[scroll_id].x;
+        widget[jd].y = widget[scroll_id].y + widget[scroll_id].h - (i + 1) * lh;
+        widget[jd].w = widget[scroll_id].w;
+        widget[jd].h = lh;
+    }
+
+    /* Update scroll bounds. */
+
+    widget[scroll_id].pan_x = anim_none();
+    widget[scroll_id].pan_y = anim_none();
+
+    widget[scroll_id].pan_max_x = 0.0f;
+    widget[scroll_id].pan_max_y = MAX(0.0f, (lh * sc - widget[scroll_id].h) / (float) widget[scroll_id].h);
+
+    gui_multi_update(id);
+
+    /* Rebuild textures. */
+
+    gui_render_text(scroll_id);
 }
 
 void gui_set_trunc(int id, enum trunc trunc)
@@ -1268,7 +1415,7 @@ int gui_multi(int pd, const char *text, int size, const GLubyte *c0,
 {
     int id = 0;
 
-    if (text && *text && (id = gui_varray(pd)))
+    if (text && *text)
     {
         const char *p;
 
@@ -1296,13 +1443,47 @@ int gui_multi(int pd, const char *text, int size, const GLubyte *c0,
 
         /* Create a label widget for each line. */
 
-        for (i = 0; i < j; i++)
-            gui_label(id, s[i], size, c0, c1);
+        if ((id = gui_widget(pd, GUI_MULTI)))
+        {
+            int scroll_id = 0;
+            int down_id = 0;
+            int up_id = 0;
 
-        /* Set rectangle on the container. */
+            /* Layout expects subwidgets to be in this order. */
 
-        widget[id].flags |= GUI_RECT;
-        widget[id].flags |= GUI_CLIP;
+            if ((up_id = gui_state(id, GUI_TRIANGLE_UP, GUI_TNY, GUI_SCROLL_Y, -1)))
+            {
+                gui_set_color(up_id, gui_yel, gui_wht);
+                widget[up_id].flags |= GUI_RECT_FORCE;
+            }
+
+            if ((down_id = gui_state(id, GUI_TRIANGLE_DOWN, GUI_TNY, GUI_SCROLL_Y, +1)))
+            {
+                gui_set_color(down_id, gui_yel, gui_wht);
+                widget[down_id].flags |= GUI_RECT_FORCE;
+            }
+
+            if ((scroll_id = gui_varray(id)))
+            {
+                widget[scroll_id].color0 = c0;
+                widget[scroll_id].color1 = c1;
+                widget[scroll_id].size = size;
+
+                for (i = 0; i < j; i++)
+                    gui_label(scroll_id, s[i], size, c0, c1);
+
+                widget[scroll_id].flags |= GUI_CLIP;
+            }
+
+            widget[up_id].target = scroll_id;
+            widget[down_id].target = scroll_id;
+
+            gui_set_rect(id, GUI_ALL);
+
+            widget[up_id].hidden = 1;
+            widget[down_id].hidden = 1;
+        }
+
     }
     return id;
 }
@@ -1397,6 +1578,27 @@ static void gui_vstack_up(int id)
     }
 }
 
+/*
+ * Calculate space requirements for the multi widget.
+ */
+static void gui_multi_up(int id)
+{
+    int scroll_id = widget[id].car;
+    int down_id = widget[scroll_id].cdr;
+    int up_id = widget[down_id].cdr;
+
+    /* Size the scroll area and buttons. */
+
+    gui_widget_up(scroll_id);
+    gui_widget_up(down_id);
+    gui_widget_up(up_id);
+
+    /* Buttons don't need space in the parent widget. */
+
+    widget[id].w = widget[scroll_id].w;
+    widget[id].h = widget[scroll_id].h;
+}
+
 static void gui_button_up(int id)
 {
     if (widget[id].w < widget[id].h && widget[id].w > 0)
@@ -1425,6 +1627,7 @@ static void gui_widget_up(int id)
         case GUI_HARRAY: gui_harray_up(id); break;
         case GUI_VARRAY: gui_varray_up(id); break;
         case GUI_HSTACK: gui_hstack_up(id); break;
+        case GUI_MULTI:  gui_multi_up (id); break;
         case GUI_VSTACK: gui_vstack_up(id); break;
         case GUI_FILLER:                    break;
         default:         gui_button_up(id); break;
@@ -1568,6 +1771,33 @@ static void gui_vstack_dn(int id, int x, int y, int w, int h)
     }
 }
 
+/*
+ * Position and distribute space to the multi widget.
+ */
+static void gui_multi_dn(int id, int x, int y, int w, int h)
+{
+    int scroll_id = widget[id].car;
+    int down_id = widget[scroll_id].cdr;
+    int up_id = widget[down_id].cdr;
+
+    widget[id].x = x;
+    widget[id].y = y;
+    widget[id].w = w;
+    widget[id].h = h;
+
+    /* Give the entire space to the scroll area. */
+
+    gui_widget_dn(scroll_id, x, y, w, h);
+
+    /* Overlay the scroll buttons. */
+
+    widget[down_id].x = x + w - widget[down_id].w - (padding / 2);
+    widget[down_id].y = y                         + (padding / 2);
+
+    widget[up_id].x = x + w - widget[up_id].w - (padding / 2);
+    widget[up_id].y = y + h - widget[up_id].h - (padding / 2);
+}
+
 static void gui_filler_dn(int id, int x, int y, int w, int h)
 {
     /* Filler expands to whatever size it is given. */
@@ -1595,6 +1825,7 @@ static void gui_widget_dn(int id, int x, int y, int w, int h)
         case GUI_VARRAY: gui_varray_dn(id, x, y, w, h); break;
         case GUI_HSTACK: gui_hstack_dn(id, x, y, w, h); break;
         case GUI_VSTACK: gui_vstack_dn(id, x, y, w, h); break;
+        case GUI_MULTI:  gui_multi_dn (id, x, y, w, h); break;
         case GUI_FILLER: gui_filler_dn(id, x, y, w, h); break;
         case GUI_SPACE:  gui_filler_dn(id, x, y, w, h); break;
         default:         gui_button_dn(id, x, y, w, h); break;
@@ -1649,7 +1880,7 @@ void gui_layout(int id, int xd, int yd)
 
     /* Set up GUI rendering state. */
 
-    gui_geom_widget(id, 0);
+    gui_geom_widget(id);
 
     gui_render_text(id);
 
@@ -1683,10 +1914,18 @@ int gui_delete(int id)
 {
     if (id)
     {
+        int jd;
+
         /* Recursively delete all subwidgets. */
 
-        gui_delete(widget[id].cdr);
-        gui_delete(widget[id].car);
+        for (jd = widget[id].car; jd; )
+        {
+            int cdr = widget[jd].cdr;
+
+            gui_delete(jd);
+
+            jd = cdr;
+        }
 
         if (widget[id].text)
         {
@@ -1707,11 +1946,13 @@ int gui_delete(int id)
 
         /* Mark this widget unused. */
 
-        widget[id].type  = GUI_FREE;
-        widget[id].flags = 0;
-        widget[id].image = 0;
-        widget[id].cdr   = 0;
-        widget[id].car   = 0;
+        widget[id].type   = GUI_FREE;
+        widget[id].flags  = 0;
+        widget[id].image  = 0;
+        widget[id].cdr    = 0;
+        widget[id].car    = 0;
+        widget[id].parent = 0;
+        widget[id].target = 0;
 
         /* Clear focus from this widget. */
 
@@ -1721,18 +1962,35 @@ int gui_delete(int id)
     return 0;
 }
 
+void gui_delete_children(int id)
+{
+    int jd;
+
+    for (jd = widget[id].car; jd; )
+    {
+        int cdr = widget[jd].cdr;
+
+        gui_delete(jd);
+
+        jd = cdr;
+    }
+
+    widget[id].car = 0;
+}
+
 /*---------------------------------------------------------------------------*/
 
-static void gui_paint_rect(int id, int st, int flags)
+static void gui_paint_rect(int id, int flags)
 {
     int jd, i = 0;
 
     /* Use the widget status to determine the background color. */
 
-    i = st | (((widget[id].flags & GUI_HILITE) ? 2 : 0) |
-              ((id == active)                  ? 1 : 0));
+    i = (((widget[id].flags & GUI_HILITE) ? 2 : 0) |
+         ((id == active)                  ? 1 : 0));
 
-    if ((widget[id].flags & GUI_RECT) && !(flags & GUI_RECT))
+
+    if (!widget[id].hidden && (((widget[id].flags & GUI_RECT) && !(flags & GUI_RECT)) || (widget[id].flags & GUI_RECT_FORCE)))
     {
         /* Draw a leaf's background, colored by widget state. */
 
@@ -1756,11 +2014,12 @@ static void gui_paint_rect(int id, int st, int flags)
     case GUI_HSTACK:
     case GUI_VSTACK:
     case GUI_ROOT:
+    case GUI_MULTI:
 
         /* Recursively paint all subwidgets. */
 
         for (jd = widget[id].car; jd; jd = widget[jd].cdr)
-            gui_paint_rect(jd, i, flags);
+            gui_paint_rect(jd, flags);
 
         break;
     }
@@ -1787,13 +2046,16 @@ static void gui_paint_array(int id)
             glTranslatef(-cx, -cy, 0.0f);
         }
 
-        /* Recursively paint all subwidgets. */
+        if (widget[id].pan_x.value || widget[id].pan_y.value)
+            glTranslatef(widget[id].w * widget[id].pan_x.value, widget[id].h * widget[id].pan_y.value, 0.0f);
 
         if (widget[id].flags & GUI_CLIP)
         {
             glScissor(widget[id].x, widget[id].y, widget[id].w, widget[id].h);
             glEnable(GL_SCISSOR_TEST);
         }
+
+        /* Recursively paint all subwidgets. */
 
         for (jd = widget[id].car; jd; jd = widget[jd].cdr)
             gui_paint_text(jd);
@@ -1955,7 +2217,7 @@ static void gui_paint_label(int id)
 {
     /* Short-circuit empty labels. */
 
-    if (widget[id].image == 0)
+    if (widget[id].image == 0 || widget[id].hidden)
         return;
 
     /* Draw the widget text box, textured using the glyph. */
@@ -1986,6 +2248,7 @@ static void gui_paint_text(int id)
     case GUI_HSTACK: gui_paint_array(id); break;
     case GUI_VSTACK: gui_paint_array(id); break;
     case GUI_ROOT:   gui_paint_array(id); break;
+    case GUI_MULTI:  gui_paint_array(id); break;
     case GUI_IMAGE:  gui_paint_image(id); break;
     case GUI_COUNT:  gui_paint_count(id); break;
     case GUI_CLOCK:  gui_paint_clock(id); break;
@@ -2002,7 +2265,7 @@ void gui_paint(int id)
             glDisable(GL_DEPTH_TEST);
             {
                 draw_enable(GL_FALSE, GL_TRUE, GL_TRUE);
-                gui_paint_rect(id, 0, 0);
+                gui_paint_rect(id, 0);
 
                 draw_enable(GL_TRUE, GL_TRUE, GL_TRUE);
                 gui_paint_text(id);
@@ -2043,6 +2306,7 @@ void gui_dump(int id, int d)
         case GUI_BUTTON: type = "button"; break;
         case GUI_SPACE:  type = "space";  break;
         case GUI_ROOT:   type = "root";   break;
+        case GUI_MULTI:  type = "multi";  break;
         }
 
         for (i = 0; i < d; i++)
@@ -2060,6 +2324,19 @@ void gui_pulse(int id, float k)
     if (id) widget[id].scale = k;
 }
 
+void gui_scroll(int id, float dx, float dy)
+{
+    if (id)
+    {
+        widget[id].pan_x = anim_make(widget[id].pan_x.value,
+                                     CLAMP(0.0f, widget[id].pan_x.value + dx, widget[id].pan_max_x),
+                                     0.2f);
+        widget[id].pan_y = anim_make(widget[id].pan_y.value,
+                                     CLAMP(0.0f, widget[id].pan_y.value + dy, widget[id].pan_max_y),
+                                     0.2f);
+    }
+}
+
 void gui_timer(int id, float dt)
 {
     int jd;
@@ -2073,6 +2350,11 @@ void gui_timer(int id, float dt)
             widget[id].scale = 1.0f;
         else
             widget[id].scale -= dt;
+
+        widget[id].pan_x = anim_step(widget[id].pan_x, dt);
+        widget[id].pan_y = anim_step(widget[id].pan_y, dt);
+
+        gui_multi_update(widget[id].parent);
     }
 }
 
@@ -2457,6 +2739,26 @@ int gui_click(int b, int d)
         }
     }
     return 0;
+}
+
+void gui_buttn(int b, int d)
+{
+    if (active)
+    {
+        int token = gui_token(active);
+        int value = gui_value(active);
+
+        switch (token)
+        {
+            case GUI_SCROLL_X:
+                gui_scroll(widget[active].target, 0.25f * (float) value, 0.0f);
+                break;
+
+            case GUI_SCROLL_Y:
+                gui_scroll(widget[active].target, 0.0f, 0.25f * (float) value);
+                break;
+        }
+    }
 }
 
 /*---------------------------------------------------------------------------*/

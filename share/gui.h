@@ -66,11 +66,14 @@ enum trunc
 };
 
 #define GUI_ELLIPSIS "…"
+#define GUI_ARROW_UP "⬆"
 #define GUI_ARROW_DN "⬇"
 #define GUI_CHECKMARK "✔"
 #define GUI_BALLOT_X "✘"
 #define GUI_TRIANGLE_RIGHT "▶"
 #define GUI_TRIANGLE_LEFT "◀"
+#define GUI_TRIANGLE_UP "▲"
+#define GUI_TRIANGLE_DOWN "▼"
 #define GUI_CIRCLE_ARROW "⟳"
 #define GUI_CROSS "×"
 
@@ -122,6 +125,7 @@ void gui_dump(int, int);
 void gui_layout(int, int, int);
 int  gui_search(int, int, int);
 int  gui_delete(int);
+void gui_delete_children(int);
 
 /*---------------------------------------------------------------------------*/
 
@@ -131,12 +135,15 @@ void gui_timer(int, float);
 int  gui_point(int, int, int);
 int  gui_stick(int, int, float, int);
 int  gui_click(int, int);
+void gui_buttn(int, int);
 void gui_focus(int);
 
 int  gui_active(void);
 int  gui_token(int);
 int  gui_value(int);
 void gui_toggle(int);
+
+void gui_scroll(int id, float dx, float dy);
 
 /*---------------------------------------------------------------------------*/
 
@@ -156,6 +163,8 @@ enum
     GUI_CHAR,
     GUI_NAME,
     GUI_SCORE,
+    GUI_SCROLL_X,
+    GUI_SCROLL_Y,
 
     GUI_LAST
 };

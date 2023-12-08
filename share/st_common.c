@@ -163,10 +163,8 @@ void common_stick(int id, int a, float v, int bump)
 int common_click(int b, int d)
 {
     if (gui_click(b, d))
-    {
-        int active = gui_active();
-        return common_action(gui_token(active), gui_value(active));
-    }
+        return common_buttn(config_get_d(CONFIG_JOYSTICK_BUTTON_A), 1);
+
     return 1;
 }
 
@@ -177,6 +175,8 @@ int common_keybd(int c, int d)
 
 int common_buttn(int b, int d)
 {
+    gui_buttn(b, d);
+
     if (d)
     {
         int active = gui_active();

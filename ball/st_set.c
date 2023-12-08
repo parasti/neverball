@@ -197,6 +197,8 @@ static int set_keybd(int c, int d)
 
 static int set_buttn(int b, int d)
 {
+    gui_buttn(b, d);
+
     if (d)
     {
         int active = gui_active();
