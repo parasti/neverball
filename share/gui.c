@@ -124,8 +124,6 @@ static struct anim anim_make(float start, float target, float duration)
     a.at_start = 1u;
     a.at_target = 0;
 
-    anim_dump(a);
-
     return a;
 }
 
@@ -163,7 +161,6 @@ struct widget
     int     font;
     int     size;
     int     rect;
-    int     hidden;
 
     char   *text;
 
@@ -197,6 +194,8 @@ struct widget
     float pan_max_y;
 
     enum trunc trunc;
+
+    unsigned int hidden:1;
 };
 
 /*---------------------------------------------------------------------------*/
@@ -1100,6 +1099,9 @@ static void gui_multi_update(int id)
     }
 }
 
+static void gui_widget_up(int id);
+static void gui_widget_dn(int id, int x, int y, int w, int h);
+
 void gui_set_multi(int id, const char *text)
 {
     const char *p;
@@ -1111,6 +1113,7 @@ void gui_set_multi(int id, const char *text)
 
     int scroll_id = widget[id].car;
 
+    // TODO: this may be zero, if there was no text.
     int lh = widget[widget[scroll_id].car].h; /* Height of first label. */
 
     /* Copy each delimited string to a line buffer. */
@@ -1138,17 +1141,26 @@ void gui_set_multi(int id, const char *text)
 
     for (i = 0; i < sc; i++)
     {
-        int jd = gui_label(scroll_id, s[i], widget[scroll_id].size,
-                                            widget[scroll_id].color0,
-                                            widget[scroll_id].color1);
-
-        /* Position within parent. */
-
-        widget[jd].x = widget[scroll_id].x;
-        widget[jd].y = widget[scroll_id].y + widget[scroll_id].h - (i + 1) * lh;
-        widget[jd].w = widget[scroll_id].w;
-        widget[jd].h = lh;
+        gui_label(scroll_id, s[i], widget[scroll_id].size,
+                                   widget[scroll_id].color0,
+                                   widget[scroll_id].color1);
     }
+
+    int orig_x = widget[scroll_id].x;
+    int orig_y = widget[scroll_id].y;
+    int orig_w = widget[scroll_id].w;
+    int orig_h = widget[scroll_id].h;
+
+    gui_widget_up(scroll_id);
+    gui_widget_dn(scroll_id, orig_x,
+                             orig_y,
+                             orig_w,
+                             widget[scroll_id].h);
+
+    widget[scroll_id].x = orig_x;
+    widget[scroll_id].y = orig_y;
+    widget[scroll_id].w = orig_w;
+    widget[scroll_id].h = orig_h;
 
     /* Update scroll bounds. */
 
@@ -1453,14 +1465,18 @@ int gui_multi(int pd, const char *text, int size, const GLubyte *c0,
 
             if ((up_id = gui_state(id, GUI_TRIANGLE_UP, GUI_TNY, GUI_SCROLL_Y, -1)))
             {
-                gui_set_color(up_id, gui_yel, gui_wht);
+                widget[up_id].color0 = gui_yel;
+                widget[up_id].color1 = gui_wht;
                 widget[up_id].flags |= GUI_RECT_FORCE;
+                widget[up_id].hidden = 1u;
             }
 
             if ((down_id = gui_state(id, GUI_TRIANGLE_DOWN, GUI_TNY, GUI_SCROLL_Y, +1)))
             {
-                gui_set_color(down_id, gui_yel, gui_wht);
+                widget[down_id].color0 = gui_yel;
+                widget[down_id].color1 = gui_wht;
                 widget[down_id].flags |= GUI_RECT_FORCE;
+                widget[down_id].hidden = 1u;
             }
 
             if ((scroll_id = gui_varray(id)))
@@ -1479,9 +1495,6 @@ int gui_multi(int pd, const char *text, int size, const GLubyte *c0,
             widget[down_id].target = scroll_id;
 
             gui_set_rect(id, GUI_ALL);
-
-            widget[up_id].hidden = 1;
-            widget[down_id].hidden = 1;
         }
 
     }
@@ -1496,13 +1509,14 @@ int gui_multi(int pd, const char *text, int size, const GLubyte *c0,
  * recursively from these.
  */
 
-static void gui_widget_up(int id);
-
 static void gui_harray_up(int id)
 {
     int jd, c = 0;
 
     /* Find the widest child width and the highest child height. */
+
+    widget[id].w = 0;
+    widget[id].h = 0;
 
     for (jd = widget[id].car; jd; jd = widget[jd].cdr)
     {
@@ -1527,6 +1541,9 @@ static void gui_varray_up(int id)
 
     /* Find the widest child width and the highest child height. */
 
+    widget[id].h = 0;
+    widget[id].w = 0;
+
     for (jd = widget[id].car; jd; jd = widget[jd].cdr)
     {
         gui_widget_up(jd);
@@ -1550,6 +1567,9 @@ static void gui_hstack_up(int id)
 
     /* Find the highest child height.  Sum the child widths. */
 
+    widget[id].w = 0;
+    widget[id].h = 0;
+
     for (jd = widget[id].car; jd; jd = widget[jd].cdr)
     {
         gui_widget_up(jd);
@@ -1566,6 +1586,9 @@ static void gui_vstack_up(int id)
     int jd;
 
     /* Find the widest child width.  Sum the child heights. */
+
+    widget[id].w = 0;
+    widget[id].h = 0;
 
     for (jd = widget[id].car; jd; jd = widget[jd].cdr)
     {
@@ -1593,7 +1616,7 @@ static void gui_multi_up(int id)
     gui_widget_up(down_id);
     gui_widget_up(up_id);
 
-    /* Buttons don't need space in the parent widget. */
+    /* Scroll area takes up the entire multi widget. */
 
     widget[id].w = widget[scroll_id].w;
     widget[id].h = widget[scroll_id].h;
@@ -1999,6 +2022,9 @@ static void gui_paint_rect(int id, int flags)
             glTranslatef((GLfloat) (widget[id].x + widget[id].w / 2),
                          (GLfloat) (widget[id].y + widget[id].h / 2), 0.f);
 
+            if (widget[id].pan_x.value || widget[id].pan_y.value)
+                glTranslatef(widget[id].w * widget[id].pan_x.value, widget[id].h * widget[id].pan_y.value, 0.0f);
+
             glBindTexture(GL_TEXTURE_2D, curr_theme.tex[i]);
             draw_rect(id);
         }
@@ -2312,7 +2338,7 @@ void gui_dump(int id, int d)
         for (i = 0; i < d; i++)
             printf("    ");
 
-        printf("%04d %s\n", id, type);
+        printf("%04d %s (%d %d) (%dx%d)\n", id, type, widget[id].x, widget[id].y, widget[id].w, widget[id].h);
 
         for (jd = widget[id].car; jd; jd = widget[jd].cdr)
             gui_dump(jd, d + 1);
