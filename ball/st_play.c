@@ -109,7 +109,7 @@ static int play_ready_gui(void)
 static int play_ready_enter(struct state *st, struct state *prev)
 {
     audio_play(AUD_READY, 1.0f);
-    video_set_grab(1);
+    // video_set_grab(1);
 
     hud_cam_pulse(config_get_d(CONFIG_CAMERA));
 
@@ -539,15 +539,73 @@ static int play_loop_buttn(int b, int d)
 
 static int play_loop_touch(const SDL_TouchFingerEvent *event)
 {
-    if (event->type == SDL_FINGERMOTION)
+    static SDL_FingerID rotate_finger = -1;
+
+    static float rotate = 0.0f;
+
+    int id;
+
+    if ((id = hud_touch(event)))
     {
-        int dx = (int) ((float) video.device_w * event->dx);
-        int dy = (int) ((float) video.device_h * -event->dy);
+        int token = gui_token(id);
 
-        game_set_pos(dx, dy);
+        gui_pulse(id, 1.2f);
+
+        if (token == GUI_BACK)
+        {
+            goto_state(&st_pause);
+        }
+        else if (token == GUI_CAMERA)
+        {
+            toggle_camera();
+
+            /* Weird hack: allow toggling the button. */
+
+            gui_focus(0);
+        }
     }
+    else if (event->type == SDL_FINGERDOWN)
+    {
+        SDL_Finger *finger = SDL_GetTouchFinger(event->touchId, 1);
 
-    // TODO: rotate camera, change camera, etc.
+        if (finger && event->fingerId == finger->id)
+        {
+            rotate_finger = finger->id;
+            rotate = 0.0f;
+        }
+    }
+    else if (event->type == SDL_FINGERUP)
+    {
+        if (event->fingerId == rotate_finger)
+        {
+            rotate_finger = -1;
+            rot_clr(DIR_R | DIR_L);
+            rotate = 0.0f;
+        }
+    }
+    else if (event->type == SDL_FINGERMOTION)
+    {
+        if (event->fingerId == rotate_finger)
+        {
+            /* Rotate the camera with the second finger. */
+
+            rotate += event->dx * 0.8f;
+
+            if (rotate > 0.0f)
+                rot_set(DIR_L, MIN(1.0f, 64.0f * +rotate), 1);
+            else if (rotate < 0.0f)
+                rot_set(DIR_R, MIN(1.0f, 64.0f * -rotate), 1);
+            else
+                rot_clr(DIR_R | DIR_L);
+        }
+        else
+        {
+            int dx = (int) ((float) video.device_w * event->dx);
+            int dy = (int) ((float) video.device_h * -event->dy);
+
+            game_set_pos(dx, dy);
+        }
+    }
 
     return 1;
 }

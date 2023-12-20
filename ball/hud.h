@@ -1,6 +1,8 @@
 #ifndef HUD_H
 #define HUD_H
 
+#include "SDL_events.h"
+
 /*---------------------------------------------------------------------------*/
 
 void hud_init(void);
@@ -9,6 +11,8 @@ void hud_free(void);
 void hud_paint(void);
 void hud_timer(float);
 void hud_update(int);
+
+int hud_touch(const SDL_TouchFingerEvent *);
 
 void hud_cam_pulse(int);
 void hud_cam_timer(float);
