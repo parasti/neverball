@@ -589,12 +589,15 @@ static int play_loop_touch(const SDL_TouchFingerEvent *event)
         {
             /* Rotate the camera with the second finger. */
 
-            rotate += event->dx * 0.8f;
+            if ((rotate < 0.0f && event->dx > 0.0f) || (event->dx < 0.0f && rotate > 0.0f))
+                rotate = 0.0f;
+
+            rotate += event->dx * 0.4f;
 
             if (rotate > 0.0f)
-                rot_set(DIR_L, MIN(1.0f, 64.0f * +rotate), 1);
+                rot_set(DIR_L, MIN(2.0f, 32.0f * +rotate), 1);
             else if (rotate < 0.0f)
-                rot_set(DIR_R, MIN(1.0f, 64.0f * -rotate), 1);
+                rot_set(DIR_R, MIN(2.0f, 32.0f * -rotate), 1);
             else
                 rot_clr(DIR_R | DIR_L);
         }
