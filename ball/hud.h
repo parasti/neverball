@@ -22,6 +22,9 @@ void hud_speed_pulse(int);
 void hud_speed_timer(float);
 void hud_speed_paint(void);
 
+void hud_touch_timer(float);
+void hud_touch_paint(void);
+
 /*---------------------------------------------------------------------------*/
 
 #endif

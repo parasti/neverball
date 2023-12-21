@@ -109,7 +109,7 @@ static int play_ready_gui(void)
 static int play_ready_enter(struct state *st, struct state *prev)
 {
     audio_play(AUD_READY, 1.0f);
-    // video_set_grab(1);
+    video_set_grab(1);
 
     hud_cam_pulse(config_get_d(CONFIG_CAMERA));
 
@@ -541,7 +541,7 @@ static int play_loop_touch(const SDL_TouchFingerEvent *event)
 {
     static SDL_FingerID rotate_finger = -1;
 
-    static float rotate = 0.0f;
+    static float rotate = 0.0f; /* Filtered input. */
 
     int id;
 
@@ -566,7 +566,7 @@ static int play_loop_touch(const SDL_TouchFingerEvent *event)
     }
     else if (event->type == SDL_FINGERDOWN)
     {
-        SDL_Finger *finger = SDL_GetTouchFinger(event->touchId, 1);
+        SDL_Finger *finger = SDL_GetTouchFinger(event->touchId, 1); /* Second finger. */
 
         if (finger && event->fingerId == finger->id)
         {
@@ -587,17 +587,26 @@ static int play_loop_touch(const SDL_TouchFingerEvent *event)
     {
         if (event->fingerId == rotate_finger)
         {
-            /* Rotate the camera with the second finger. */
+            /* Discard accumulated input when moving in the opposite direction. */
 
             if ((rotate < 0.0f && event->dx > 0.0f) || (event->dx < 0.0f && rotate > 0.0f))
                 rotate = 0.0f;
 
-            rotate += event->dx * 0.4f;
+            /* Filter the input for a smoother experience. */
+
+            rotate += event->dx * 0.5f;
+
+            /* Move across 1/24 of screen to obtain a 1.0 speed multiplier. */
+
+            /* Move across 1/12 of screen to obtain a 2.0 speed multiplier. */
+
+            /* Clamp at 2.0, because 2.0 * 1.5 (default rotate_slow) = 1.0 * 3.0 (default rotate_fast). */
+            /* In other words, the fastest rotation speed with touch is equal to the fastest rotation speed with mouse/keyboard/joystick. */
 
             if (rotate > 0.0f)
-                rot_set(DIR_L, MIN(2.0f, 32.0f * +rotate), 1);
+                rot_set(DIR_R, MIN(2.0f, 24.0f * +rotate), 1);
             else if (rotate < 0.0f)
-                rot_set(DIR_R, MIN(2.0f, 32.0f * -rotate), 1);
+                rot_set(DIR_L, MIN(2.0f, 24.0f * -rotate), 1);
             else
                 rot_clr(DIR_R | DIR_L);
         }

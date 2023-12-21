@@ -52,6 +52,7 @@ static const char *speed_labels[SPEED_MAX] = {
 
 static float cam_timer;
 static float speed_timer;
+static float touch_timer;
 
 static void hud_fps(void)
 {
@@ -174,10 +175,6 @@ void hud_paint(void)
         gui_paint(Lhud_id);
 
     gui_paint(Rhud_id);
-
-    if (curr_state() != &st_pause)
-        gui_paint(Touch_id);
-
     gui_paint(time_id);
 
     if (config_get_d(CONFIG_FPS))
@@ -185,6 +182,7 @@ void hud_paint(void)
 
     hud_cam_paint();
     hud_speed_paint();
+    hud_touch_paint();
 }
 
 void hud_update(int pulse)
@@ -307,10 +305,13 @@ void hud_timer(float dt)
 
     hud_cam_timer(dt);
     hud_speed_timer(dt);
+    hud_touch_timer(dt);
 }
 
 int hud_touch(const SDL_TouchFingerEvent *event)
 {
+    touch_timer = 5.0f;
+
     if (event->type == SDL_FINGERUP)
     {
         const int x = (int) ((float) video.device_w * event->x);
@@ -382,6 +383,20 @@ void hud_speed_paint(void)
 {
     if (speed_timer > 0.0f)
         gui_paint(speed_id);
+}
+
+/*---------------------------------------------------------------------------*/
+
+void hud_touch_timer(float dt)
+{
+    touch_timer -= dt;
+    gui_timer(Touch_id, dt);
+}
+
+void hud_touch_paint(void)
+{
+    if (touch_timer > 0.0f && curr_state() != &st_pause)
+        gui_paint(Touch_id);
 }
 
 /*---------------------------------------------------------------------------*/
