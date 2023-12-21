@@ -594,19 +594,19 @@ static int play_loop_touch(const SDL_TouchFingerEvent *event)
 
             /* Filter the input for a smoother experience. */
 
-            rotate += event->dx * 0.5f;
+            rotate += event->dx * 0.4f;
 
-            /* Move across 1/24 of screen to obtain a 1.0 speed multiplier. */
+            /* Move across 1/32 of screen to obtain a 1.0 speed multiplier. */
 
-            /* Move across 1/12 of screen to obtain a 2.0 speed multiplier. */
+            /* Move across 1/16 of screen to obtain a 2.0 speed multiplier. */
 
             /* Clamp at 2.0, because 2.0 * 1.5 (default rotate_slow) = 1.0 * 3.0 (default rotate_fast). */
             /* In other words, the fastest rotation speed with touch is equal to the fastest rotation speed with mouse/keyboard/joystick. */
 
             if (rotate > 0.0f)
-                rot_set(DIR_R, MIN(2.0f, 24.0f * +rotate), 1);
+                rot_set(DIR_L, MIN(2.0f, 32.0f * +rotate), 1);
             else if (rotate < 0.0f)
-                rot_set(DIR_L, MIN(2.0f, 24.0f * -rotate), 1);
+                rot_set(DIR_R, MIN(2.0f, 32.0f * -rotate), 1);
             else
                 rot_clr(DIR_R | DIR_L);
         }
