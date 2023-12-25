@@ -543,6 +543,24 @@ static int play_loop_touch(const SDL_TouchFingerEvent *event)
 
     static float rotate = 0.0f; /* Filtered input. */
 
+    /*
+     * Make sure not to exceed rotate_fast rotation speed.
+     *
+     * Find the coefficient needed to reach rotate_fast speed and
+     * clamp the scaled input at that value.
+     *
+     * Derivation:
+     * Default rotate_slow is 150 or 1.5
+     * Default rotate_fast is 300 or 3.0
+     *
+     *   x * slow = 1.0 * fast
+     *   x = (1.0 * fast) / slow
+     *   x = fast / slow
+     */
+    const float rs = config_get_d(CONFIG_ROTATE_SLOW) / 100.0f;
+    const float rf = config_get_d(CONFIG_ROTATE_SLOW) / 100.0f;
+    const float rmax = rf / rs;
+
     int id;
 
     if ((id = hud_touch(event)))
@@ -596,19 +614,17 @@ static int play_loop_touch(const SDL_TouchFingerEvent *event)
 
             rotate += event->dx * 0.4f;
 
-            /* Move across 1/32 of screen to obtain a 1.0 speed multiplier. */
+            /*
+             * touch_rotate gives the fraction of the screen that you need to swipe
+             * across to reach rotate_slow rotation speed. E.g., a value of 32
+             * is 1/32 of screen.
+             *
+             * To rotate slower, swipe a smaller distance than that.
+             * To rotate faster, swipe farther.
+             */
 
-            /* Move across 1/16 of screen to obtain a 2.0 speed multiplier. */
-
-            /* Clamp at 2.0, because 2.0 * 1.5 (default rotate_slow) = 1.0 * 3.0 (default rotate_fast). */
-            /* In other words, the fastest rotation speed with touch is equal to the fastest rotation speed with mouse/keyboard/joystick. */
-
-            if (rotate > 0.0f)
-                rot_set(DIR_L, MIN(2.0f, 32.0f * +rotate), 1);
-            else if (rotate < 0.0f)
-                rot_set(DIR_R, MIN(2.0f, 32.0f * -rotate), 1);
-            else
-                rot_clr(DIR_R | DIR_L);
+            if (rotate != 0.0f)
+                rot_set(DIR_L, MIN(rmax, (float) config_get_d(CONFIG_TOUCH_ROTATE) * rotate), 1);
         }
         else
         {
