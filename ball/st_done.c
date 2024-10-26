@@ -90,7 +90,7 @@ static int done_gui(void)
     return id;
 }
 
-static int done_enter(struct state *st, struct state *prev)
+static int done_enter(struct state *st, struct state *prev, int intent)
 {
     if (prev == &st_name)
         progress_rename(1);

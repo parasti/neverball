@@ -99,7 +99,7 @@ static int pause_gui(void)
     return id;
 }
 
-static int pause_enter(struct state *st, struct state *prev)
+static int pause_enter(struct state *st, struct state *prev, int intent)
 {
     st_continue = prev;
 

@@ -134,7 +134,7 @@ static int fail_gui(void)
     return root_id;
 }
 
-static int fail_enter(struct state *st, struct state *prev)
+static int fail_enter(struct state *st, struct state *prev, int intent)
 {
     audio_music_fade_out(2.0f);
     video_clr_grab();
