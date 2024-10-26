@@ -71,6 +71,131 @@ static const char *pick_demo(Array items)
 
 /*---------------------------------------------------------------------------*/
 
+#define HELLO_URL "https://neverball.org/hello/"
+
+static int hello_id = 0;
+static int hello_message_id = 0;
+static int hello_state = 0;
+
+static int hello_message_gui(int root_id, const char *text)
+{
+    int id, jd;
+
+    if ((id = gui_vstack(root_id)))
+    {
+        if ((jd = gui_hstack(id)))
+        {
+            gui_label(jd, text, GUI_LIL, gui_yel, gui_yel);
+            gui_space(jd);
+        }
+
+        gui_space(id);
+
+        gui_layout(id, -1, -1);
+    }
+
+    return id;
+}
+
+static int hello_message_push(int root_id, const char *text)
+{
+    int id;
+
+    if ((id = hello_message_gui(root_id, text)))
+    {
+        gui_slide(hello_message_id, GUI_S | GUI_REMOVE, 0, 1.2f, 0);
+
+        hello_message_id = id;
+
+        gui_slide(hello_message_id, GUI_S, -0.2f, 1.2f, 0);
+    }
+
+    return id;
+}
+
+static void hello_done(void *data, void *extra_data)
+{
+    struct fetch_done *dn = extra_data;
+
+    hello_state = 0; // DEBUG
+
+    if (curr_state() != &st_title)
+        return;
+
+    if (dn && dn->success)
+    {
+        if (dn->status == 200)
+        {
+            int now = 0;
+            int hour = 0;
+            int day = 0;
+            int week = 0;
+            int month = 0;
+            int total = 0;
+
+            const char *format = NULL;
+            int value = 0;
+
+            sscanf(dn->body, "now %d hour %d day %d week %d month %d total %d", &now, &hour, &day, &week, &month, &total);
+
+            if (now > 1)
+            {
+                value = now;
+                // This looks weird with the `now > 1` test, but is required for other languages.
+                format = gt_plural("%d wave just now!", "%d waves just now!", value);
+            }
+            else if (hour > 1)
+            {
+                value = hour;
+                format = gt_plural("%d wave this hour!", "%d waves this hour!", value);
+            }
+            else if (day > 1)
+            {
+                value = day;
+                format = gt_plural("%d wave today!", "%d waves today!", value);
+            }
+            else if (week > 1)
+            {
+                value = week;
+                format = gt_plural("%d wave this week!", "%d waves this week!", value);
+            }
+            else if (month > 1)
+            {
+                value = month;
+                format = gt_plural("%d wave this month!", "%d waves this month!", value);
+            }
+            else if (total > 1)
+            {
+                value = total;
+                format = gt_plural("%d wave total!", "%d waves total!", value);
+            }
+
+            if (format)
+            {
+                char text[MAXSTR];
+
+                snprintf(text, sizeof (text), format, value);
+
+                hello_message_push(st_title.gui_id, text);
+            }
+
+            // Set next time when to show hello button.
+
+        }
+        else if (dn->status == 429)
+        {
+            hello_message_push(st_title.gui_id, _("Too soon! Try again later."));
+
+            // Set next time when to show hello button.
+        }
+
+        // gui_delete(hello_id);
+        // hello_id = 0;
+    }
+}
+
+/*---------------------------------------------------------------------------*/
+
 enum
 {
     MODE_NONE,
@@ -93,7 +218,8 @@ enum
     TITLE_HELP,
     TITLE_DEMO,
     TITLE_CONF,
-    TITLE_PACKAGES
+    TITLE_PACKAGES,
+    TITLE_WAVE
 };
 
 static int title_action(int tok, int val)
@@ -122,6 +248,22 @@ static int title_action(int tok, int val)
     case TITLE_DEMO: return goto_state(&st_demo); break;
     case TITLE_CONF: return goto_state(&st_conf); break;
     case TITLE_PACKAGES: return goto_state(&st_package); break;
+
+    case TITLE_WAVE:
+        if (!hello_state)
+        {
+            struct fetch_callback callback = { 0 };
+
+            callback.done = hello_done;
+
+            hello_state = 1;
+
+            gui_slide(hello_id, GUI_S | GUI_BACKWARD | GUI_REMOVE, 0, 0.2f, 0);
+
+            fetch_post(HELLO_URL, callback);
+        }
+        break;
+
     case GUI_CHAR:
 
         /* Let the queue fill up. */
@@ -231,6 +373,24 @@ static int title_gui(void)
             gui_set_slide(id, GUI_N | GUI_EASE_ELASTIC, 1.2f, 1.4f, 0);
 
             gui_layout(id, +1, -1);
+        }
+
+        if ((id = gui_vstack(root_id)))
+        {
+            if ((jd = gui_hstack(id)))
+            {
+                const int s = MIN(video.device_w, video.device_h) / 16;
+
+                hello_id = gui_image(jd, "png/openmoji/1F44B_color.png", s, s);
+
+                gui_space(jd);
+
+                gui_set_state(hello_id, TITLE_WAVE, 0);
+                gui_set_slide(hello_id, GUI_S | GUI_W, -0.4f, 1.4f, 0.0f);
+            }
+            gui_space(id);
+
+            gui_layout(id, -1, -1);
         }
 #endif
     }

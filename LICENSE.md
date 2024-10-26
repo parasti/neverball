@@ -23,3 +23,4 @@ libjpeg project.
 miniz project (https://github.com/richgel999/miniz) and are licensed
 under the MIT license. See `doc/legal/license-miniz.txt`.
 * Easings in the file `share/ease.c` are licensed under GPLv3.
+* Icons located under `data/png/openmoji` are from the OpenMoji project. OpenMoji graphics are licensed under the Creative Commons Share Alike License 4.0 ([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)).

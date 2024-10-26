@@ -44,8 +44,17 @@ struct fetch_info
     struct fetch_callback callback;
 
     CURL *handle;
+
+    /* Write response to file. */
+
     char *dest_filename;
     fs_file dest_file;
+
+    /* Otherwise, write response to memory. */
+
+    unsigned char dest_buff[FETCH_BODY_MAX];
+    size_t dest_buff_size;
+
     unsigned int fetch_id;
 };
 
@@ -124,12 +133,25 @@ static struct fetch_progress *create_extra_progress(double total, double now)
 /*
  * Create extra_data for a done callback.
  */
-static struct fetch_done *create_extra_done(int success)
+static struct fetch_done *create_extra_done(int success, long status, long retry_after, unsigned char *body, size_t body_size)
 {
     struct fetch_done *dn = calloc(sizeof (*dn), 1);
 
     if (dn)
+    {
         dn->success = !!success;
+        dn->status = status;
+        dn->retry_after = retry_after;
+
+        if (body && body_size > 0)
+        {
+            const size_t count = MIN(body_size, sizeof (dn->body));
+
+            memcpy(dn->body, body, count);
+
+            dn->body_size = count;
+        }
+    }
 
     return dn;
 }
@@ -307,16 +329,32 @@ static size_t fetch_write_func(void *buffer, size_t size, size_t nmemb, void *us
 
     if (fi)
     {
-        if (!fi->dest_file)
+        if (fi->dest_filename && *fi->dest_filename)
         {
-            /* Open file on first write. TODO: write to a temporary file. */
+            if (!fi->dest_file)
+            {
+                /* Open file on first write. */
 
-            if (fi->dest_filename && *fi->dest_filename)
                 fi->dest_file = fs_open_write(fi->dest_filename);
-        }
+            }
 
-        if (fi->dest_file)
-            return fs_write(buffer, size * nmemb, fi->dest_file);
+            if (fi->dest_file)
+            {
+                return fs_write(buffer, size * nmemb, fi->dest_file);
+            }
+        }
+        else
+        {
+            const size_t max = sizeof (fi->dest_buff);
+            const size_t remaining = max - fi->dest_buff_size;
+            const size_t count = MIN(size * nmemb, remaining);
+
+            memcpy(fi->dest_buff + fi->dest_buff_size, buffer, count);
+
+            fi->dest_buff_size += count;
+
+            return count;
+        }
     }
 
     return 0;
@@ -368,11 +406,15 @@ static void fetch_step(void)
                     struct fetch_info *fi;
 
                     int success;
+                    long status = 0;
+                    curl_off_t retry_after = 0;
 
                     CURL *handle = message->easy_handle;
                     CURLcode code = message->data.result;
 
                     curl_easy_getinfo(handle, CURLINFO_PRIVATE, &fi);
+                    curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &status);
+                    curl_easy_getinfo(handle, CURLINFO_RETRY_AFTER, &retry_after);
 
                     if (code != CURLE_OK)
                     {
@@ -406,7 +448,7 @@ static void fetch_step(void)
                         {
                             fe->callback = fi->callback.done;
                             fe->callback_data = fi->callback.data;
-                            fe->extra_data = create_extra_done(success);
+                            fe->extra_data = create_extra_done(success, status, (long) retry_after, fi->dest_buff, fi->dest_buff_size);
 
                             fetch_dispatch_event(fe);
                         }
@@ -561,6 +603,29 @@ void fetch_quit(void)
     curl_global_cleanup();
 }
 
+static void setup_curl_handle(CURL *handle, const char *url, struct fetch_info *fi)
+{
+    curl_easy_setopt(handle, CURLOPT_PRIVATE, fi);
+    curl_easy_setopt(handle, CURLOPT_URL, url);
+    curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, fetch_write_func);
+    curl_easy_setopt(handle, CURLOPT_WRITEDATA, fi);
+
+    curl_easy_setopt(handle, CURLOPT_PROGRESSFUNCTION, fetch_progress_func);
+    curl_easy_setopt(handle, CURLOPT_PROGRESSDATA, fi);
+    curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 0);
+
+    curl_easy_setopt(handle, CURLOPT_BUFFERSIZE, 102400L);
+    curl_easy_setopt(handle, CURLOPT_USERAGENT, "neverball/" VERSION);
+    curl_easy_setopt(handle, CURLOPT_ACCEPT_ENCODING, "");
+    curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 1);
+
+    #if defined(_WIN32) && defined(CURLSSLOPT_NATIVE_CA)
+    curl_easy_setopt(handle, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+    #endif
+
+    curl_easy_setopt(handle, CURLOPT_VERBOSE, 1);
+}
+
 /*
  * Download from URL into FILENAME.
  */
@@ -590,25 +655,49 @@ unsigned int fetch_file(const char *url,
             fi->handle = handle;
             fi->dest_filename = strdup(filename);
 
-            curl_easy_setopt(handle, CURLOPT_PRIVATE, fi);
-            curl_easy_setopt(handle, CURLOPT_URL, url);
-            curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, fetch_write_func);
-            curl_easy_setopt(handle, CURLOPT_WRITEDATA, fi);
+            setup_curl_handle(handle, url, fi);
 
-            curl_easy_setopt(handle, CURLOPT_PROGRESSFUNCTION, fetch_progress_func);
-            curl_easy_setopt(handle, CURLOPT_PROGRESSDATA, fi);
-            curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 0);
+            curl_multi_add_handle(multi_handle, handle);
 
-            curl_easy_setopt(handle, CURLOPT_BUFFERSIZE, 102400L);
-            curl_easy_setopt(handle, CURLOPT_USERAGENT, "neverball/" VERSION);
-            curl_easy_setopt(handle, CURLOPT_ACCEPT_ENCODING, "");
-            curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 1);
+            fetch_id = fi->fetch_id;
+        }
+        else curl_easy_cleanup(handle);
+    }
 
-            #if defined(_WIN32) && defined(CURLSSLOPT_NATIVE_CA)
-            curl_easy_setopt(handle, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
-            #endif
+    fetch_unlock_mutex();
 
-            /* curl_easy_setopt(handle, CURLOPT_VERBOSE, 1); */
+    return fetch_id;
+}
+
+
+/*
+ * POST data to URL.
+ */
+unsigned int fetch_post(const char *url, struct fetch_callback callback)
+{
+    unsigned int fetch_id = 0;
+    CURL *handle;
+
+    fetch_lock_mutex();
+
+    handle = curl_easy_init();
+
+    if (handle)
+    {
+        struct fetch_info *fi = create_and_link_fetch_info();
+
+        if (fi)
+        {
+            log_printf("Starting transfer %u\n", fi->fetch_id);
+
+            log_printf("Posting to %s\n", url);
+
+            fi->callback = callback;
+            fi->handle = handle;
+
+            setup_curl_handle(handle, url, fi);
+
+            curl_easy_setopt(handle, CURLOPT_POSTFIELDS, "");
 
             curl_multi_add_handle(multi_handle, handle);
 

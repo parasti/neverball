@@ -24,6 +24,7 @@
 #define GUI_FACE "ttf/DejaVuSans-Bold.ttf"
 
 #define GUI_TNY FONT_SIZE_TNY
+#define GUI_LIL FONT_SIZE_LIL
 #define GUI_SML FONT_SIZE_SML
 #define GUI_TCH FONT_SIZE_TCH
 #define GUI_MED FONT_SIZE_MED

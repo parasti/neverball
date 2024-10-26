@@ -15,7 +15,10 @@
 #ifndef FETCH_H
 #define FETCH_H 1
 
+#include <stddef.h>
+
 #define FETCH_MAX 5
+#define FETCH_BODY_MAX 256u
 
 /*
  * Progress callback extra_data.
@@ -32,6 +35,10 @@ struct fetch_progress
 struct fetch_done
 {
     unsigned int success:1;
+    long status;
+    long retry_after;
+    char body[FETCH_BODY_MAX];
+    size_t body_size;
 };
 
 /*
@@ -51,5 +58,8 @@ void fetch_quit(void);
 unsigned int fetch_file(const char *url,
                         const char *dst,
                         struct fetch_callback);
+
+unsigned int fetch_post(const char *url,
+                        struct fetch_callback callback);
 
 #endif
