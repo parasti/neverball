@@ -15,8 +15,11 @@ ASSET_PATHS := \
 	lang \
 	lights.txt \
 	map-back \
+	map-easy \
 	png \
+	set-easy.txt \
 	sets.txt \
+	shot-easy \
 	snd \
 	textures \
 	ttf
