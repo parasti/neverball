@@ -1898,7 +1898,7 @@ static int d_ok_vert(const struct mapc_context *ctx,
 
         d_sub(r, p, q);
 
-        if (d_len(r) < SMALL)
+        if (d_len(r) < 1e-5)
             return 0;
     }
     return 1;
@@ -3394,7 +3394,7 @@ static void mapc_compile_internal(struct mapc_context *ctx)
         if (ctx->opt_obj)
             export_obj(ctx, ctx->opt_obj);
 
-        smth_file(ctx);
+        /* smth_file(ctx); */
         sort_file(ctx);
         node_file(ctx);
 
