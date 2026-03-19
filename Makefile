@@ -275,6 +275,7 @@ endif
 
 MAPC_OBJS := \
 	share/vec3.o        \
+	share/dvec3.o       \
 	share/base_image.o  \
 	share/solid_base.o  \
 	share/binary.o      \
