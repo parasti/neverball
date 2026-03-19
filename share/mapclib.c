@@ -37,6 +37,7 @@
 #include "solid_base.h"
 
 #include "vec3.h"
+#include "dvec3.h"
 #include "base_image.h"
 #include "base_config.h"
 #include "fs.h"
@@ -177,6 +178,17 @@ struct mapc_context
     float plane_v[MAXS][3];
     int plane_f[MAXS];
     int plane_m[MAXS];
+
+    double dplane_d[MAXS];
+    double dplane_n[MAXS][3];
+    double dplane_p[MAXS][3];
+    double dplane_u[MAXS][3];
+    double dplane_v[MAXS][3];
+
+    double dvert_pos[MAXV][3];
+    int    vert_planes[MAXV][3];
+
+    const char *opt_obj;
 
     int read_dict_entries;
 
@@ -363,11 +375,13 @@ int mapc_init(struct mapc_context **ctx_ptr)
         return 0;
 
     memset(ctx, 0, sizeof(*ctx));
+    memset(ctx->vert_planes, -1, sizeof(ctx->vert_planes));
 
     ctx->opt_debug = 0;
     ctx->opt_csv = 0;
     ctx->opt_file = NULL;
     ctx->opt_data = NULL;
+    ctx->opt_obj = NULL;
 
 #if ENABLE_RADIANT_CONSOLE
     ctx->bcast_socket = NULL;
@@ -1047,9 +1061,9 @@ static void read_obj(struct mapc_context *ctx, const char *name, int mi)
 
 /*---------------------------------------------------------------------------*/
 
-static void make_plane(struct mapc_context *ctx, int   pi, float x0, float y0, float      z0,
-                       float x1, float y1, float z1,
-                       float x2, float y2, float z2,
+static void make_plane(struct mapc_context *ctx, int   pi, double x0, double y0, double z0,
+                       double x1, double y1, double z1,
+                       double x2, double y2, double z2,
                        float tu, float tv, float r,
                        float su, float sv, int   fl, const char *s)
 {
@@ -1062,36 +1076,50 @@ static void make_plane(struct mapc_context *ctx, int   pi, float x0, float y0, f
         {{  0, -1,  0 }, {  1,  0,  0 }, {  0,  0, -1 }},
     };
 
+    static const double DSCALE = 64.0;
+
     float R[16];
-    float p0[3], p1[3], p2[3];
-    float u[3],  v[3],  p[3];
-    float k, d = 0.0f;
-    int   i, n = 0;
-    int   w, h;
+    double dp0[3], dp1[3], dp2[3];
+    double du[3],  dv[3];
+    float  p[3];
+    float  k, d = 0.0f;
+    int    i, n = 0;
+    int    w, h;
 
     size_image(ctx, s, &w, &h);
 
     ctx->plane_f[pi] = fl ? L_DETAIL : 0;
 
-    p0[0] = +x0 / SCALE;
-    p0[1] = +z0 / SCALE;
-    p0[2] = -y0 / SCALE;
+    /* Compute plane equation in double precision. */
 
-    p1[0] = +x1 / SCALE;
-    p1[1] = +z1 / SCALE;
-    p1[2] = -y1 / SCALE;
+    dp0[0] = +x0 / DSCALE;
+    dp0[1] = +z0 / DSCALE;
+    dp0[2] = -y0 / DSCALE;
 
-    p2[0] = +x2 / SCALE;
-    p2[1] = +z2 / SCALE;
-    p2[2] = -y2 / SCALE;
+    dp1[0] = +x1 / DSCALE;
+    dp1[1] = +z1 / DSCALE;
+    dp1[2] = -y1 / DSCALE;
 
-    v_sub(u, p0, p1);
-    v_sub(v, p2, p1);
+    dp2[0] = +x2 / DSCALE;
+    dp2[1] = +z2 / DSCALE;
+    dp2[2] = -y2 / DSCALE;
 
-    v_crs(ctx->plane_n[pi], u, v);
-    v_nrm(ctx->plane_n[pi], ctx->plane_n[pi]);
+    d_sub(du, dp0, dp1);
+    d_sub(dv, dp2, dp1);
 
-    ctx->plane_d[pi] = v_dot(ctx->plane_n[pi], p1);
+    d_crs(ctx->dplane_n[pi], du, dv);
+    d_nrm(ctx->dplane_n[pi], ctx->dplane_n[pi]);
+
+    ctx->dplane_d[pi] = d_dot(ctx->dplane_n[pi], dp1);
+
+    /* Truncate to float for downstream code and binary output. */
+
+    ctx->plane_n[pi][0] = (float) ctx->dplane_n[pi][0];
+    ctx->plane_n[pi][1] = (float) ctx->dplane_n[pi][1];
+    ctx->plane_n[pi][2] = (float) ctx->dplane_n[pi][2];
+    ctx->plane_d[pi]    = (float) ctx->dplane_d[pi];
+
+    /* Texture axis selection uses float; precision is adequate. */
 
     for (i = 0; i < 6; i++)
         if ((k = v_dot(ctx->plane_n[pi], base[i][0])) >= d)
@@ -1137,9 +1165,9 @@ static int map_token(struct mapc_context *ctx, fs_file fin, int pi, char key[MAX
 
     if (fs_gets(buf, MAXSTR, fin))
     {
-        float x0, y0, z0;
-        float x1, y1, z1;
-        float x2, y2, z2;
+        double x0, y0, z0;
+        double x1, y1, z1;
+        double x2, y2, z2;
         float tu, tv, r;
         float su, sv;
         int fl = 0;
@@ -1163,9 +1191,9 @@ static int map_token(struct mapc_context *ctx, fs_file fin, int pi, char key[MAX
         /* Scan a plane. */
 
         if (sscanf(buf,
-                   "( %f %f %f ) "
-                   "( %f %f %f ) "
-                   "( %f %f %f ) "
+                   "( %lf %lf %lf ) "
+                   "( %lf %lf %lf ) "
+                   "( %lf %lf %lf ) "
                    "%s %f %f %f %f %f %d",
                    &x0, &y0, &z0,
                    &x1, &y1, &z1,
@@ -1841,35 +1869,48 @@ static int fore_side(const float p[3], const struct b_side *sp)
     return (v_dot(p, sp->n) - sp->d > +SMALL) ? 1 : 0;
 }
 
-static int on_side(const float p[3], const struct b_side *sp)
-{
-    float d = v_dot(p, sp->n) - sp->d;
+/* Double-precision variant: test point against plane using ctx double data. */
 
-    return (-SMALL < d && d < +SMALL) ? 1 : 0;
+#define DSMALL 1e-10
+
+static int d_fore_side(const double p[3], const double n[3], double d)
+{
+    return (d_dot(p, n) - d > +DSMALL) ? 1 : 0;
 }
 
 /*---------------------------------------------------------------------------*/
 /*
  * Confirm  that  the addition  of  a vert  would  not  result in  degenerate
- * geometry.
+ * geometry.  Uses double-precision positions for tighter tolerance.
  */
 
-static int ok_vert(const struct s_base *fp,
-                   const struct b_lump *lp, const float p[3])
+static int d_ok_vert(const struct mapc_context *ctx,
+                     const struct s_base *fp,
+                     const struct b_lump *lp, const double p[3])
 {
-    float r[3];
+    double r[3];
     int i;
 
     for (i = 0; i < lp->vc; i++)
     {
-        float *q = fp->vv[fp->iv[lp->v0 + i]].p;
+        int vi = fp->iv[lp->v0 + i];
+        const double *q = ctx->dvert_pos[vi];
 
-        v_sub(r, p, q);
+        d_sub(r, p, q);
 
-        if (v_len(r) < SMALL)
+        if (d_len(r) < SMALL)
             return 0;
     }
     return 1;
+}
+
+/* Test whether a vertex was generated by a given plane. */
+
+static int vert_on_plane(const struct mapc_context *ctx, int vi, int si)
+{
+    return (ctx->vert_planes[vi][0] == si ||
+            ctx->vert_planes[vi][1] == si ||
+            ctx->vert_planes[vi][2] == si);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1893,34 +1934,44 @@ static void clip_vert(struct mapc_context *ctx,
                       struct b_lump *lp, int si, int sj, int sk)
 {
     struct s_base *fp = &ctx->file;
-    float M[16], X[16], I[16];
-    float d[3],  p[3];
+    double M[16], X[16], I[16];
+    double d[3],  p[3];
     int i;
 
-    d[0] = fp->sv[si].d;
-    d[1] = fp->sv[sj].d;
-    d[2] = fp->sv[sk].d;
+    d[0] = ctx->dplane_d[si];
+    d[1] = ctx->dplane_d[sj];
+    d[2] = ctx->dplane_d[sk];
 
-    m_basis(M, fp->sv[si].n, fp->sv[sj].n, fp->sv[sk].n);
-    m_xps(X, M);
+    dm_basis(M, ctx->dplane_n[si], ctx->dplane_n[sj], ctx->dplane_n[sk]);
+    dm_xps(X, M);
 
-    if (m_inv(I, X))
+    if (dm_inv(I, X))
     {
-        m_vxfm(p, I, d);
+        dm_vxfm(p, I, d);
 
         for (i = 0; i < lp->sc; i++)
         {
             int sl = fp->iv[lp->s0 + i];
 
-            if (fore_side(p, fp->sv + sl))
+            if (d_fore_side(p, ctx->dplane_n[sl], ctx->dplane_d[sl]))
                 return;
         }
 
-        if (ok_vert(fp, lp, p))
+        if (d_ok_vert(ctx, fp, lp, p))
         {
             int vi = incv(ctx);
 
-            v_cpy(fp->vv[vi].p, p);
+            fp->vv[vi].p[0] = (float) p[0];
+            fp->vv[vi].p[1] = (float) p[1];
+            fp->vv[vi].p[2] = (float) p[2];
+
+            ctx->dvert_pos[vi][0] = p[0];
+            ctx->dvert_pos[vi][1] = p[1];
+            ctx->dvert_pos[vi][2] = p[2];
+
+            ctx->vert_planes[vi][0] = si;
+            ctx->vert_planes[vi][1] = sj;
+            ctx->vert_planes[vi][2] = sk;
 
             fp->iv[inci(ctx)] = vi;
             lp->vc++;
@@ -1943,16 +1994,16 @@ static void clip_edge(struct mapc_context *ctx,
     {
         int vi = fp->iv[lp->v0 + i];
 
-        if (!on_side(fp->vv[vi].p, fp->sv + si) ||
-            !on_side(fp->vv[vi].p, fp->sv + sj))
+        if (!vert_on_plane(ctx, vi, si) ||
+            !vert_on_plane(ctx, vi, sj))
             continue;
 
         for (j = 0; j < i; j++)
         {
             int vj = fp->iv[lp->v0 + j];
 
-            if (on_side(fp->vv[vj].p, fp->sv + si) &&
-                on_side(fp->vv[vj].p, fp->sv + sj))
+            if (vert_on_plane(ctx, vj, si) &&
+                vert_on_plane(ctx, vj, sj))
             {
                 fp->ev[fp->ec].vi = vi;
                 fp->ev[fp->ec].vj = vj;
@@ -1977,27 +2028,27 @@ static void clip_geom(struct mapc_context *ctx,
 {
     struct s_base *fp = &ctx->file;
     int   m[256], t[256], d, i, j, n = 0;
-    float u[3];
-    float v[3];
-    float w[3];
+    double du[3];
+    double dv[3];
+    double dw[3];
+    float  fv[3];
 
-    struct b_side *sp = fp->sv + si;
-
-    /* Find em. */
+    /* Find em: use integer plane-index lookup instead of on_side(). */
 
     for (i = 0; i < lp->vc; i++)
     {
         int vi = fp->iv[lp->v0 + i];
 
-        if (on_side(fp->vv[vi].p, sp))
+        if (vert_on_plane(ctx, vi, si))
         {
             m[n] = vi;
             t[n] = inct(ctx);
 
-            v_add(v, fp->vv[vi].p, ctx->plane_p[si]);
+            /* Texture coordinates use float; precision is adequate. */
+            v_add(fv, fp->vv[vi].p, ctx->plane_p[si]);
 
-            fp->tv[t[n]].u[0] = v_dot(v, ctx->plane_u[si]);
-            fp->tv[t[n]].u[1] = v_dot(v, ctx->plane_v[si]);
+            fp->tv[t[n]].u[0] = v_dot(fv, ctx->plane_u[si]);
+            fp->tv[t[n]].u[1] = v_dot(fv, ctx->plane_v[si]);
 
             if (++n >= ARRAYSIZE(m))
             {
@@ -2007,16 +2058,16 @@ static void clip_geom(struct mapc_context *ctx,
         }
     }
 
-    /* Sort em. */
+    /* Sort em: use double-precision positions and plane normals. */
 
     for (i = 1; i < n; i++)
         for (j = i + 1; j < n; j++)
         {
-            v_sub(u, fp->vv[m[i]].p, fp->vv[m[0]].p);
-            v_sub(v, fp->vv[m[j]].p, fp->vv[m[0]].p);
-            v_crs(w, u, v);
+            d_sub(du, ctx->dvert_pos[m[i]], ctx->dvert_pos[m[0]]);
+            d_sub(dv, ctx->dvert_pos[m[j]], ctx->dvert_pos[m[0]]);
+            d_crs(dw, du, dv);
 
-            if (v_dot(w, sp->n) < 0.f)
+            if (d_dot(dw, ctx->dplane_n[si]) < 0.0)
             {
                 d     = m[i];
                 m[i]  = m[j];
@@ -3192,6 +3243,11 @@ int mapc_opts(struct mapc_context *ctx, int argc, char *argv[])
             if (++argi < argc)
                 fs_add_path(argv[argi]);
         }
+        else if (strcmp(argv[argi], "--obj")   == 0)
+        {
+            if (++argi < argc)
+                ctx->opt_obj = argv[argi];
+        }
         else if (!ctx->opt_file)
         {
             ctx->opt_file = argv[argi];
@@ -3231,11 +3287,62 @@ int mapc_opts(struct mapc_context *ctx, int argc, char *argv[])
 
     if (!(ctx->opt_file && ctx->opt_data))
     {
-        fprintf(stderr, "Usage: %s <map> <data> [--debug] [--csv] [--data <dir>]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <map> <data> [--debug] [--csv] [--data <dir>] [--obj <path>]\n", argv[0]);
         return 0;
     }
 
     return 1;
+}
+
+/*---------------------------------------------------------------------------*/
+
+static void export_obj(struct mapc_context *ctx, const char *path)
+{
+    struct s_base *fp = &ctx->file;
+    FILE *fout;
+    int i;
+
+    fout = fopen(path, "w");
+
+    if (!fout)
+    {
+        fprintf(stderr, "Failed to open OBJ output: %s\n", path);
+        return;
+    }
+
+    fprintf(fout, "# Exported by mapc\n");
+
+    for (i = 0; i < fp->vc; i++)
+        fprintf(fout, "v %.9g %.9g %.9g\n",
+                fp->vv[i].p[0], fp->vv[i].p[1], fp->vv[i].p[2]);
+
+    for (i = 0; i < fp->sc; i++)
+        fprintf(fout, "vn %.9g %.9g %.9g\n",
+                fp->sv[i].n[0], fp->sv[i].n[1], fp->sv[i].n[2]);
+
+    for (i = 0; i < fp->tc; i++)
+        fprintf(fout, "vt %.9g %.9g\n",
+                fp->tv[i].u[0], fp->tv[i].u[1]);
+
+    for (i = 0; i < fp->gc; i++)
+    {
+        struct b_geom *gp = fp->gv + i;
+        struct b_offs *oi = fp->ov + gp->oi;
+        struct b_offs *oj = fp->ov + gp->oj;
+        struct b_offs *ok = fp->ov + gp->ok;
+
+        /* OBJ indices are 1-based. */
+
+        fprintf(fout, "f %d/%d/%d %d/%d/%d %d/%d/%d\n",
+                oi->vi + 1, oi->ti + 1, oi->si + 1,
+                oj->vi + 1, oj->ti + 1, oj->si + 1,
+                ok->vi + 1, ok->ti + 1, ok->si + 1);
+    }
+
+    fclose(fout);
+
+    fprintf(stderr, "Exported OBJ: %d verts, %d faces -> %s\n",
+            fp->vc, fp->gc, path);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -3269,7 +3376,14 @@ static void mapc_compile_internal(struct mapc_context *ctx)
 
         clip_file(ctx);
         move_file(ctx);
-        uniq_file(ctx);
+
+        /* Dedup disabled: simplifies development and debugging of
+         * the precision/connectivity rework.  Re-enable later. */
+        /* uniq_file(ctx); */
+
+        if (ctx->opt_obj)
+            export_obj(ctx, ctx->opt_obj);
+
         smth_file(ctx);
         sort_file(ctx);
         node_file(ctx);
