@@ -646,6 +646,13 @@ General Public License for more details.
         runButtonClick: async function (event) {
           this.disabled = true;
 
+          if (!window.isSecureContext) {
+            const secureUrl = window.location.href.replace(/^http:/, 'https:');
+            Neverball._statusBar.innerHTML = 'Requires a secure connection. <a href="' + secureUrl + '" style="color:inherit">Try this link instead \u2192</a>';
+            this.disabled = false;
+            return;
+          }
+
           try {
             if (window.localStorage.getItem('isAppInstalled') !== '1') {
               // This is our first run. Do preparation now and note that we did.
