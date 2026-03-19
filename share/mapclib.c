@@ -1235,11 +1235,11 @@ static void snap_plane(struct mapc_context *ctx, int pi, int s0, int sc)
 
         double dot = d_dot(ctx->dplane_n[pi], ctx->dplane_n[si]);
 
-        if (dot > 1.0 - 1e-6)
+        if (dot > 1.0 - 1e-4)
         {
             /* Same direction: check distance. */
 
-            if (fabs(ctx->dplane_d[pi] - ctx->dplane_d[si]) < 1e-3)
+            if (fabs(ctx->dplane_d[pi] - ctx->dplane_d[si]) < 5e-3)
             {
                 d_cpy(ctx->dplane_n[pi], ctx->dplane_n[si]);
                 ctx->dplane_d[pi] = ctx->dplane_d[si];
@@ -1252,11 +1252,11 @@ static void snap_plane(struct mapc_context *ctx, int pi, int s0, int sc)
                 return;
             }
         }
-        else if (dot < -1.0 + 1e-6)
+        else if (dot < -1.0 + 1e-4)
         {
             /* Opposite direction: check distance. */
 
-            if (fabs(ctx->dplane_d[pi] + ctx->dplane_d[si]) < 1e-3)
+            if (fabs(ctx->dplane_d[pi] + ctx->dplane_d[si]) < 5e-3)
             {
                 ctx->dplane_n[pi][0] = -ctx->dplane_n[si][0];
                 ctx->dplane_n[pi][1] = -ctx->dplane_n[si][1];
