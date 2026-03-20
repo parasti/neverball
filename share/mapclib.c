@@ -2214,31 +2214,7 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
 
     for (i = 0; i < lp->sc; i++)
         if (fp->mv[ctx->plane_m[fp->iv[lp->s0 + i]]].d[3] > 0.0f)
-        {
-            int gc_before = lp->gc;
-            int si = fp->iv[lp->s0 + i];
-
-            clip_geom(ctx, lp, si);
-
-            if (lp->gc == gc_before)
-            {
-                /* Count verts on this plane. */
-                int nv = 0, vi;
-                for (vi = 0; vi < lp->vc; vi++)
-                    if (vert_on_plane(ctx, fp->iv[lp->v0 + vi], si))
-                        nv++;
-
-                fprintf(stderr,
-                    "  lump %d side %d: 0 geoms (%d verts on plane) "
-                    "n=(%.9g %.9g %.9g) d=%.9g mtrl=%s\n",
-                    (int)(lp - fp->lv), si, nv,
-                    ctx->dplane_n[si][0],
-                    ctx->dplane_n[si][1],
-                    ctx->dplane_n[si][2],
-                    ctx->dplane_d[si],
-                    fp->mv[ctx->plane_m[si]].f);
-            }
-        }
+            clip_geom(ctx, lp, fp->iv[lp->s0 + i]);
 
     for (i = 0; i < lp->sc; i++)
         if (ctx->plane_f[fp->iv[lp->s0 + i]])
@@ -3469,14 +3445,12 @@ static void mapc_compile_internal(struct mapc_context *ctx)
         clip_file(ctx);
         move_file(ctx);
 
-        /* Dedup disabled: simplifies development and debugging of
-         * the precision/connectivity rework.  Re-enable later. */
-        /* uniq_file(ctx); */
+        uniq_file(ctx);
 
         if (ctx->opt_obj)
             export_obj(ctx, ctx->opt_obj);
 
-        /* smth_file(ctx); */
+        smth_file(ctx);
         sort_file(ctx);
         node_file(ctx);
 
