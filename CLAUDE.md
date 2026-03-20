@@ -1,72 +1,85 @@
 # Neverball Development Notes
 
-## How mapc geometry changes were verified
+## How to verify mapc geometry changes
 
-Changes to `share/mapclib.c` (the map compiler) were verified using the
-project's GitHub Pages deployment pipeline and a dedicated test map.
+This describes how to test changes to `share/mapclib.c` (the map compiler) to
+ensure they don't regress geometry output across all shipped maps.
 
-### Visual verification via GitHub Pages
-
-1. Push changes to a `claude/*` branch.
-2. GitHub Actions (`.github/workflows/pages.yml`) automatically:
-   - Builds `mapc` and compiles all `.map` files to `.sol` files (`make sols`).
-   - Builds Neverball to WebAssembly via Emscripten (`emscripten/ball.mk`).
-   - Deploys the result to `https://play.neverball.org/<branch-name>/`.
-3. Open the deployed URL in a browser.
-4. Click the **"Test Map"** button in `js/index.html` (line 558). This button
-   launches the game directly into `map-easy/invisible_face2.sol`, bypassing
-   the normal menu flow.
-5. Visually inspect the level. The `invisible_face2.map` (from GitHub issue
-   #397) contains geometry that produces invisible faces on master due to
-   floating-point precision issues in plane deduplication. After the
-   `snap_plane` fix, those faces should be visible.
-
-### soldump for before/after diffing
-
-The `soldump` tool (`share/soldump.c`) was added to produce human-readable,
-diffable text output from compiled `.sol` files. Usage:
+### Step 1: Build mapc on the baseline (master)
 
 ```sh
-# On master:
-make soldump
-./soldump data/map-easy/invisible_face2.sol > /tmp/before.txt
-
-# On your branch:
-make soldump
-./soldump data/map-easy/invisible_face2.sol > /tmp/after.txt
-
-diff /tmp/before.txt /tmp/after.txt
+git stash  # if you have uncommitted changes
+git checkout master
+make mapc -j$(nproc)
 ```
 
-This prints every material, vertex, edge, side, texcoord, geom, lump, node,
-etc. in the file, so you can see exactly which geometry primitives changed.
+### Step 2: Generate baseline output for all maps
 
-### Regression check across all maps
-
-To verify no other maps lost geometry, run `mapc --csv` on every map and
-compare output between master and your branch:
+Run mapc in CSV mode on every `.map` file and save the output:
 
 ```sh
 for f in data/map-*/*.map; do
     echo "=== $f ==="
     ./mapc "$f" data --csv 2>&1
-done > /tmp/mapc_output.txt
+done > /tmp/mapc_baseline.txt
 ```
 
-The CSV columns are:
-`file, n, c, t, mtrl, vert, edge, side, texc, offs, geom, lump, path, node, body, item, goal, view, jump, swch, bill, ball, char, dict, indx`
+The CSV output includes columns like `mtrl,vert,edge,side,texc,offs,geom,...`.
+The `geom` column is the most important — it counts how many renderable
+triangles were generated. A drop in `geom` count for a map means visible
+faces were lost.
 
-The `geom` column counts renderable geometry primitives. A decrease means
-visible faces were lost (regression). An increase means previously invisible
-faces were recovered (desired).
+### Step 3: Build mapc on your branch and generate new output
 
-### Known affected maps
+```sh
+git checkout <your-branch>
+git stash pop  # if needed
+make mapc -j$(nproc)
 
-- `data/map-easy/invisible_face2.map` — primary test case from issue #397.
-  On master, some faces are invisible. The `snap_plane` fix increases the
-  geom count by recovering those faces.
-- `data/map-easy/bumper.map` — contains thin brushes (0.125 units wide, the
-  smallest grid size in TrenchBroom). Some sides produce 0 geoms because the
-  brush is so narrow that `clip_vert` can't find enough vertex intersections.
+for f in data/map-*/*.map; do
+    echo "=== $f ==="
+    ./mapc "$f" data --csv 2>&1
+done > /tmp/mapc_branch.txt
+```
+
+### Step 4: Diff the results
+
+```sh
+diff /tmp/mapc_baseline.txt /tmp/mapc_branch.txt
+```
+
+What to look for:
+- **`geom` count decreased** for any map: your change lost visible geometry.
+  This is a regression and must be investigated.
+- **`geom` count increased** for a map: your change recovered previously
+  invisible faces. This is the desired outcome for precision fixes.
+- **`vert`, `edge`, `side` changed**: expected side effects of geometry changes.
+  Not a problem unless `geom` decreased.
+- **No diff at all for a map**: your change didn't affect that map. Fine.
+
+### Key maps to watch
+
+- `data/map-easy/bumper.map` — contains thin brushes (0.125 units wide, valid
+  in TrenchBroom). These produce sides with 0 geoms because the brush is so
+  narrow that `clip_vert` can't find enough vertex intersections on those faces.
   This is a separate issue from plane snapping.
 - `data/map-easy/mazebump.map` — same thin-brush issue as bumper.
+- `data/map-easy/invisible_face2.map` — the test map from GitHub issue #397.
+  This is the primary map for verifying the `snap_plane` fix. On master, some
+  faces are invisible. After the fix, geom count should increase.
+
+### What the numbers mean
+
+Example mapc CSV output line:
+```
+bumper.sol,55,88,0.106,10,8440,5216,28408,10196,29730,9910,348,20,79,73,...
+```
+
+The columns are (in order):
+`file, n, c, t, mtrl, vert, edge, side, texc, offs, geom, lump, path, node, body, item, goal, view, jump, swch, bill, ball, char, dict, indx`
+
+- `n` = brush count, `c` = brush capacity used
+- `t` = compile time in seconds
+- `geom` = number of renderable geometry primitives (triangles)
+- `side` = number of brush sides processed
+- `vert` = number of vertices in the compiled output
