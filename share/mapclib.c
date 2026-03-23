@@ -37,7 +37,6 @@
 #include "solid_base.h"
 
 #include "vec3.h"
-#include "dvec3.h"
 #include "base_image.h"
 #include "base_config.h"
 #include "fs.h"
@@ -179,13 +178,6 @@ struct mapc_context
     int plane_f[MAXS];
     int plane_m[MAXS];
 
-    double dplane_d[MAXS];
-    double dplane_n[MAXS][3];
-    double dplane_p[MAXS][3];
-    double dplane_u[MAXS][3];
-    double dplane_v[MAXS][3];
-
-    double dvert_pos[MAXV][3];
     int    vert_planes[MAXV][3];
 
     const char *opt_obj;
@@ -1061,9 +1053,9 @@ static void read_obj(struct mapc_context *ctx, const char *name, int mi)
 
 /*---------------------------------------------------------------------------*/
 
-static void make_plane(struct mapc_context *ctx, int   pi, double x0, double y0, double z0,
-                       double x1, double y1, double z1,
-                       double x2, double y2, double z2,
+static void make_plane(struct mapc_context *ctx, int   pi, float x0, float y0, float z0,
+                       float x1, float y1, float z1,
+                       float x2, float y2, float z2,
                        float tu, float tv, float r,
                        float su, float sv, int   fl, const char *s)
 {
@@ -1076,50 +1068,36 @@ static void make_plane(struct mapc_context *ctx, int   pi, double x0, double y0,
         {{  0, -1,  0 }, {  1,  0,  0 }, {  0,  0, -1 }},
     };
 
-    static const double DSCALE = 64.0;
-
     float R[16];
-    double dp0[3], dp1[3], dp2[3];
-    double du[3],  dv[3];
-    float  p[3];
-    float  k, d = 0.0f;
-    int    i, n = 0;
-    int    w, h;
+    float p0[3], p1[3], p2[3];
+    float u[3],  v[3],  p[3];
+    float k, d = 0.0f;
+    int   i, n = 0;
+    int   w, h;
 
     size_image(ctx, s, &w, &h);
 
     ctx->plane_f[pi] = fl ? L_DETAIL : 0;
 
-    /* Compute plane equation in double precision. */
+    p0[0] = +x0 / SCALE;
+    p0[1] = +z0 / SCALE;
+    p0[2] = -y0 / SCALE;
 
-    dp0[0] = +x0 / DSCALE;
-    dp0[1] = +z0 / DSCALE;
-    dp0[2] = -y0 / DSCALE;
+    p1[0] = +x1 / SCALE;
+    p1[1] = +z1 / SCALE;
+    p1[2] = -y1 / SCALE;
 
-    dp1[0] = +x1 / DSCALE;
-    dp1[1] = +z1 / DSCALE;
-    dp1[2] = -y1 / DSCALE;
+    p2[0] = +x2 / SCALE;
+    p2[1] = +z2 / SCALE;
+    p2[2] = -y2 / SCALE;
 
-    dp2[0] = +x2 / DSCALE;
-    dp2[1] = +z2 / DSCALE;
-    dp2[2] = -y2 / DSCALE;
+    v_sub(u, p0, p1);
+    v_sub(v, p2, p1);
 
-    d_sub(du, dp0, dp1);
-    d_sub(dv, dp2, dp1);
+    v_crs(ctx->plane_n[pi], u, v);
+    v_nrm(ctx->plane_n[pi], ctx->plane_n[pi]);
 
-    d_crs(ctx->dplane_n[pi], du, dv);
-    d_nrm(ctx->dplane_n[pi], ctx->dplane_n[pi]);
-
-    ctx->dplane_d[pi] = d_dot(ctx->dplane_n[pi], dp1);
-
-    /* Truncate to float for downstream code and binary output. */
-
-    ctx->plane_n[pi][0] = (float) ctx->dplane_n[pi][0];
-    ctx->plane_n[pi][1] = (float) ctx->dplane_n[pi][1];
-    ctx->plane_n[pi][2] = (float) ctx->dplane_n[pi][2];
-    ctx->plane_d[pi]    = (float) ctx->dplane_d[pi];
-
-    /* Texture axis selection uses float; precision is adequate. */
+    ctx->plane_d[pi] = v_dot(ctx->plane_n[pi], p1);
 
     for (i = 0; i < 6; i++)
         if ((k = v_dot(ctx->plane_n[pi], base[i][0])) >= d)
@@ -1165,9 +1143,9 @@ static int map_token(struct mapc_context *ctx, fs_file fin, int pi, char key[MAX
 
     if (fs_gets(buf, MAXSTR, fin))
     {
-        double x0, y0, z0;
-        double x1, y1, z1;
-        double x2, y2, z2;
+        float x0, y0, z0;
+        float x1, y1, z1;
+        float x2, y2, z2;
         float tu, tv, r;
         float su, sv;
         int fl = 0;
@@ -1191,9 +1169,9 @@ static int map_token(struct mapc_context *ctx, fs_file fin, int pi, char key[MAX
         /* Scan a plane. */
 
         if (sscanf(buf,
-                   "( %lf %lf %lf ) "
-                   "( %lf %lf %lf ) "
-                   "( %lf %lf %lf ) "
+                   "( %f %f %f ) "
+                   "( %f %f %f ) "
+                   "( %f %f %f ) "
                    "%s %f %f %f %f %f %d",
                    &x0, &y0, &z0,
                    &x1, &y1, &z1,
@@ -1233,36 +1211,26 @@ static void snap_plane(struct mapc_context *ctx, int pi, int s0, int sc)
     {
         int si = ctx->file.iv[s0 + i];
 
-        double dot = d_dot(ctx->dplane_n[pi], ctx->dplane_n[si]);
+        float dot = v_dot(ctx->plane_n[pi], ctx->plane_n[si]);
 
-        if (dot > 1.0 - 1e-4)
+        if (dot > 1.0f - 1e-4f)
         {
             /* Same direction: check distance. */
 
-            if (fabs(ctx->dplane_d[pi] - ctx->dplane_d[si]) < 5e-3)
+            if (fabsf(ctx->plane_d[pi] - ctx->plane_d[si]) < 5e-3f)
             {
-                d_cpy(ctx->dplane_n[pi], ctx->dplane_n[si]);
-                ctx->dplane_d[pi] = ctx->dplane_d[si];
-
-                ctx->plane_n[pi][0] = ctx->plane_n[si][0];
-                ctx->plane_n[pi][1] = ctx->plane_n[si][1];
-                ctx->plane_n[pi][2] = ctx->plane_n[si][2];
-                ctx->plane_d[pi]    = ctx->plane_d[si];
+                v_cpy(ctx->plane_n[pi], ctx->plane_n[si]);
+                ctx->plane_d[pi] = ctx->plane_d[si];
 
                 return;
             }
         }
-        else if (dot < -1.0 + 1e-4)
+        else if (dot < -1.0f + 1e-4f)
         {
             /* Opposite direction: check distance. */
 
-            if (fabs(ctx->dplane_d[pi] + ctx->dplane_d[si]) < 5e-3)
+            if (fabsf(ctx->plane_d[pi] + ctx->plane_d[si]) < 5e-3f)
             {
-                ctx->dplane_n[pi][0] = -ctx->dplane_n[si][0];
-                ctx->dplane_n[pi][1] = -ctx->dplane_n[si][1];
-                ctx->dplane_n[pi][2] = -ctx->dplane_n[si][2];
-                ctx->dplane_d[pi]    = -ctx->dplane_d[si];
-
                 ctx->plane_n[pi][0] = -ctx->plane_n[si][0];
                 ctx->plane_n[pi][1] = -ctx->plane_n[si][1];
                 ctx->plane_n[pi][2] = -ctx->plane_n[si][2];
@@ -1927,39 +1895,35 @@ static int fore_side(const float p[3], const struct b_side *sp)
     return (v_dot(p, sp->n) - sp->d > +SMALL) ? 1 : 0;
 }
 
-/* Double-precision variant: test point against plane using ctx double data. */
-
-#define DSMALL 1e-10
-
-static int d_fore_side(const double p[3], const double n[3], double d)
-{
-    return (d_dot(p, n) - d > +DSMALL) ? 1 : 0;
-}
-
 /*---------------------------------------------------------------------------*/
 /*
  * Confirm  that  the addition  of  a vert  would  not  result in  degenerate
- * geometry.  Uses double-precision positions for tighter tolerance.
+ * geometry.
  */
 
-static int d_ok_vert(const struct mapc_context *ctx,
-                     const struct s_base *fp,
-                     const struct b_lump *lp, const double p[3])
+static int ok_vert(const struct s_base *fp,
+                   const struct b_lump *lp, const float p[3])
 {
-    double r[3];
+    float r[3];
     int i;
 
     for (i = 0; i < lp->vc; i++)
     {
         int vi = fp->iv[lp->v0 + i];
-        const double *q = ctx->dvert_pos[vi];
 
-        d_sub(r, p, q);
+        v_sub(r, p, fp->vv[vi].p);
 
-        if (d_len(r) < 1e-5)
+        if (v_len(r) < SMALL)
             return 0;
     }
     return 1;
+}
+
+static int on_side(const float p[3], const struct b_side *sp)
+{
+    float d = v_dot(p, sp->n) - sp->d;
+
+    return (-SMALL < d && d < +SMALL) ? 1 : 0;
 }
 
 /* Test whether a vertex lies on a given plane. */
@@ -1976,9 +1940,7 @@ static int vert_on_plane(const struct mapc_context *ctx, int vi, int si)
     /* Slow path: a vertex at the intersection of 4+ planes may not have
      * this plane in its generating set. Fall back to a geometric test. */
 
-    double dot = d_dot(ctx->dvert_pos[vi], ctx->dplane_n[si]) - ctx->dplane_d[si];
-
-    return fabs(dot) < DSMALL;
+    return on_side(ctx->file.vv[vi].p, ctx->file.sv + si);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2002,40 +1964,34 @@ static void clip_vert(struct mapc_context *ctx,
                       struct b_lump *lp, int si, int sj, int sk)
 {
     struct s_base *fp = &ctx->file;
-    double M[16], X[16], I[16];
-    double d[3],  p[3];
+    float M[16], X[16], I[16];
+    float d[3],  p[3];
     int i;
 
-    d[0] = ctx->dplane_d[si];
-    d[1] = ctx->dplane_d[sj];
-    d[2] = ctx->dplane_d[sk];
+    d[0] = ctx->plane_d[si];
+    d[1] = ctx->plane_d[sj];
+    d[2] = ctx->plane_d[sk];
 
-    dm_basis(M, ctx->dplane_n[si], ctx->dplane_n[sj], ctx->dplane_n[sk]);
-    dm_xps(X, M);
+    m_basis(M, ctx->plane_n[si], ctx->plane_n[sj], ctx->plane_n[sk]);
+    m_xps(X, M);
 
-    if (dm_inv(I, X))
+    if (m_inv(I, X))
     {
-        dm_vxfm(p, I, d);
+        m_vxfm(p, I, d);
 
         for (i = 0; i < lp->sc; i++)
         {
             int sl = fp->iv[lp->s0 + i];
 
-            if (d_fore_side(p, ctx->dplane_n[sl], ctx->dplane_d[sl]))
+            if (fore_side(p, fp->sv + sl))
                 return;
         }
 
-        if (d_ok_vert(ctx, fp, lp, p))
+        if (ok_vert(fp, lp, p))
         {
             int vi = incv(ctx);
 
-            fp->vv[vi].p[0] = (float) p[0];
-            fp->vv[vi].p[1] = (float) p[1];
-            fp->vv[vi].p[2] = (float) p[2];
-
-            ctx->dvert_pos[vi][0] = p[0];
-            ctx->dvert_pos[vi][1] = p[1];
-            ctx->dvert_pos[vi][2] = p[2];
+            v_cpy(fp->vv[vi].p, p);
 
             ctx->vert_planes[vi][0] = si;
             ctx->vert_planes[vi][1] = sj;
@@ -2096,12 +2052,13 @@ static void clip_geom(struct mapc_context *ctx,
 {
     struct s_base *fp = &ctx->file;
     int   m[256], t[256], d, i, j, n = 0;
-    double du[3];
-    double dv[3];
-    double dw[3];
-    float  fv[3];
+    float u[3];
+    float v[3];
+    float w[3];
 
-    /* Find em: use integer plane-index lookup instead of on_side(). */
+    struct b_side *sp = fp->sv + si;
+
+    /* Find em. */
 
     for (i = 0; i < lp->vc; i++)
     {
@@ -2112,11 +2069,10 @@ static void clip_geom(struct mapc_context *ctx,
             m[n] = vi;
             t[n] = inct(ctx);
 
-            /* Texture coordinates use float; precision is adequate. */
-            v_add(fv, fp->vv[vi].p, ctx->plane_p[si]);
+            v_add(v, fp->vv[vi].p, ctx->plane_p[si]);
 
-            fp->tv[t[n]].u[0] = v_dot(fv, ctx->plane_u[si]);
-            fp->tv[t[n]].u[1] = v_dot(fv, ctx->plane_v[si]);
+            fp->tv[t[n]].u[0] = v_dot(v, ctx->plane_u[si]);
+            fp->tv[t[n]].u[1] = v_dot(v, ctx->plane_v[si]);
 
             if (++n >= ARRAYSIZE(m))
             {
@@ -2126,16 +2082,16 @@ static void clip_geom(struct mapc_context *ctx,
         }
     }
 
-    /* Sort em: use double-precision positions and plane normals. */
+    /* Sort em. */
 
     for (i = 1; i < n; i++)
         for (j = i + 1; j < n; j++)
         {
-            d_sub(du, ctx->dvert_pos[m[i]], ctx->dvert_pos[m[0]]);
-            d_sub(dv, ctx->dvert_pos[m[j]], ctx->dvert_pos[m[0]]);
-            d_crs(dw, du, dv);
+            v_sub(u, fp->vv[m[i]].p, fp->vv[m[0]].p);
+            v_sub(v, fp->vv[m[j]].p, fp->vv[m[0]].p);
+            v_crs(w, u, v);
 
-            if (d_dot(dw, ctx->dplane_n[si]) < 0.0)
+            if (v_dot(w, sp->n) < 0.f)
             {
                 d     = m[i];
                 m[i]  = m[j];
