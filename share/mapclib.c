@@ -69,7 +69,7 @@
 #define MAXS    65536
 #define MAXT    131072
 #define MAXO    262144
-#define MAXG    65536
+#define MAXG    131072
 #define MAXL    4096
 #define MAXN    2048
 #define MAXP    2048
@@ -2058,12 +2058,50 @@ static void clip_hull_by_plane(struct clip_hull *hull,
 }
 
 /*
- * Initialize a hull as a large axis-aligned bounding box.
+ * Compute a bounding box for the brush from its plane equations.
+ *
+ * For each of the 6 axis directions, the brush extent is bounded by
+ * d / (n · axis) for each plane where the denominator is positive.
  */
-static void init_hull(struct clip_hull *hull)
+static float brush_extent(const float plane_n[][3],
+                          const float plane_d[],
+                          int s0, int sc,
+                          const int *iv)
 {
-    static const float S = 65536.f;
+    float extent = 0.f;
+    int i, j;
 
+    for (i = 0; i < sc; i++)
+    {
+        int si = iv[s0 + i];
+
+        for (j = 0; j < 3; j++)
+        {
+            if (plane_n[si][j] > SMALL)
+            {
+                float e = plane_d[si] / plane_n[si][j];
+
+                if (e > extent)
+                    extent = e;
+            }
+            if (plane_n[si][j] < -SMALL)
+            {
+                float e = -plane_d[si] / plane_n[si][j];
+
+                if (e > extent)
+                    extent = e;
+            }
+        }
+    }
+
+    return extent + 1.f;
+}
+
+/*
+ * Initialize a hull as an axis-aligned bounding box.
+ */
+static void init_hull(struct clip_hull *hull, float S)
+{
     struct clip_face *f;
 
     hull->fc = 0;
@@ -2222,7 +2260,12 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
 
     /* Build the convex hull by clipping an AABB against each brush plane. */
 
-    init_hull(&hull);
+    {
+        float S = brush_extent(ctx->plane_n, ctx->plane_d,
+                               lp->s0, lp->sc, fp->iv);
+
+        init_hull(&hull, S);
+    }
 
     for (i = 0; i < lp->sc; i++)
     {
@@ -2237,9 +2280,10 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
     lp->vc = 0;
 
     for (i = 0; i < hull.fc; i++)
-        for (j = 0; j < hull.faces[i].n; j++)
-            face_vi[i][j] = find_or_add_vert(ctx, lp, hull.faces[i].v[j],
-                                             local_verts, &local_count);
+        if (hull.faces[i].si >= 0)
+            for (j = 0; j < hull.faces[i].n; j++)
+                face_vi[i][j] = find_or_add_vert(ctx, lp, hull.faces[i].v[j],
+                                                 local_verts, &local_count);
 
     /* Emit edges. */
 
