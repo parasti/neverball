@@ -1940,7 +1940,8 @@ static int vert_on_plane(const struct mapc_context *ctx, int vi, int si)
     /* Slow path: a vertex at the intersection of 4+ planes may not have
      * this plane in its generating set. Fall back to a geometric test. */
 
-    return on_side(ctx->file.vv[vi].p, ctx->file.sv + si);
+    /* return on_side(ctx->file.vv[vi].p, ctx->file.sv + si); */
+    return 0;
 }
 
 /*---------------------------------------------------------------------------*/
