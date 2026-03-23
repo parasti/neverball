@@ -178,8 +178,6 @@ struct mapc_context
     int plane_f[MAXS];
     int plane_m[MAXS];
 
-    int    vert_planes[MAXV][3];
-
     const char *opt_obj;
 
     int read_dict_entries;
@@ -367,7 +365,6 @@ int mapc_init(struct mapc_context **ctx_ptr)
         return 0;
 
     memset(ctx, 0, sizeof(*ctx));
-    memset(ctx->vert_planes, -1, sizeof(ctx->vert_planes));
 
     ctx->opt_debug = 0;
     ctx->opt_csv = 0;
@@ -1888,225 +1885,299 @@ static void read_map(struct mapc_context *ctx, fs_file fin)
 
 /*---------------------------------------------------------------------------*/
 
-/* Test the location of a point with respect to a side plane. */
-
-static int fore_side(const float p[3], const struct b_side *sp)
-{
-    return (v_dot(p, sp->n) - sp->d > +SMALL) ? 1 : 0;
-}
-
-/*---------------------------------------------------------------------------*/
 /*
- * Confirm  that  the addition  of  a vert  would  not  result in  degenerate
- * geometry.
+ * Polyhedron clipping.
+ *
+ * Build a convex polyhedron by starting with a large axis-aligned bounding
+ * box and clipping it against each brush plane.  The resulting polygons
+ * directly give us the vertices, edges, and faces of the brush.
  */
 
-static int ok_vert(const struct s_base *fp,
-                   const struct b_lump *lp, const float p[3])
+#define CLIP_MAX_FACE_VERTS 64
+#define CLIP_MAX_FACES      64
+#define CLIP_MAX_CUTS       (CLIP_MAX_FACES * 2)
+
+struct clip_face {
+    float v[CLIP_MAX_FACE_VERTS][3];
+    int   n;
+    int   si;  /* side index, or -1 for initial AABB faces */
+};
+
+struct clip_hull {
+    struct clip_face faces[CLIP_MAX_FACES];
+    int fc;
+};
+
+/*
+ * Clip a convex polygon against a half-space, keeping the back side
+ * (where dot(p, n) - d <= 0).  Intersection points are appended to cuts[].
+ */
+static void clip_face_by_plane(struct clip_face *face,
+                               const float n[3], float d,
+                               float cuts[][3], int *cut_count)
 {
+    float tmp[CLIP_MAX_FACE_VERTS][3];
+    float dist[CLIP_MAX_FACE_VERTS];
+    int i, tc = 0;
+
+    if (face->n < 3)
+        return;
+
+    for (i = 0; i < face->n; i++)
+        dist[i] = v_dot(face->v[i], n) - d;
+
+    for (i = 0; i < face->n; i++)
+    {
+        int j = (i + 1) % face->n;
+
+        if (dist[i] <= SMALL)
+        {
+            if (tc < CLIP_MAX_FACE_VERTS)
+            {
+                v_cpy(tmp[tc], face->v[i]);
+                tc++;
+            }
+        }
+
+        if ((dist[i] > SMALL && dist[j] < -SMALL) ||
+            (dist[i] < -SMALL && dist[j] > SMALL))
+        {
+            float t = dist[i] / (dist[i] - dist[j]);
+            float p[3];
+
+            v_sub(p, face->v[j], face->v[i]);
+            v_mad(p, face->v[i], p, t);
+
+            if (tc < CLIP_MAX_FACE_VERTS)
+            {
+                v_cpy(tmp[tc], p);
+                tc++;
+            }
+
+            if (*cut_count < CLIP_MAX_CUTS)
+            {
+                v_cpy(cuts[*cut_count], p);
+                (*cut_count)++;
+            }
+        }
+    }
+
+    face->n = tc;
+
+    for (i = 0; i < tc; i++)
+        v_cpy(face->v[i], tmp[i]);
+}
+
+/*
+ * Sort polygon vertices into counter-clockwise order about a normal.
+ */
+static void sort_face_ccw(struct clip_face *face, const float n[3])
+{
+    int i, j;
+
+    for (i = 1; i < face->n; i++)
+        for (j = i + 1; j < face->n; j++)
+        {
+            float u[3], v[3], w[3];
+
+            v_sub(u, face->v[i], face->v[0]);
+            v_sub(v, face->v[j], face->v[0]);
+            v_crs(w, u, v);
+
+            if (v_dot(w, n) < 0.f)
+            {
+                float t[3];
+
+                v_cpy(t,          face->v[i]);
+                v_cpy(face->v[i], face->v[j]);
+                v_cpy(face->v[j], t);
+            }
+        }
+}
+
+/*
+ * Clip the hull by a plane, keeping the back half.  A new cap polygon
+ * is formed on the clipping plane from the intersection points.
+ */
+static void clip_hull_by_plane(struct clip_hull *hull,
+                               const float n[3], float d, int si)
+{
+    float cuts[CLIP_MAX_CUTS][3];
+    int cut_count = 0;
+    int i, j;
+
+    for (i = 0; i < hull->fc; i++)
+    {
+        clip_face_by_plane(&hull->faces[i], n, d, cuts, &cut_count);
+
+        if (hull->faces[i].n < 3)
+        {
+            hull->faces[i] = hull->faces[hull->fc - 1];
+            hull->fc--;
+            i--;
+        }
+    }
+
+    if (cut_count >= 3 && hull->fc < CLIP_MAX_FACES)
+    {
+        struct clip_face *cap = &hull->faces[hull->fc];
+
+        cap->n  = 0;
+        cap->si = si;
+
+        for (i = 0; i < cut_count; i++)
+        {
+            int dup = 0;
+
+            for (j = 0; j < cap->n; j++)
+            {
+                float r[3];
+
+                v_sub(r, cuts[i], cap->v[j]);
+
+                if (v_len(r) < SMALL)
+                {
+                    dup = 1;
+                    break;
+                }
+            }
+
+            if (!dup && cap->n < CLIP_MAX_FACE_VERTS)
+            {
+                v_cpy(cap->v[cap->n], cuts[i]);
+                cap->n++;
+            }
+        }
+
+        if (cap->n >= 3)
+        {
+            sort_face_ccw(cap, n);
+            hull->fc++;
+        }
+    }
+}
+
+/*
+ * Initialize a hull as a large axis-aligned bounding box.
+ */
+static void init_hull(struct clip_hull *hull)
+{
+    static const float S = 65536.f;
+
+    struct clip_face *f;
+
+    hull->fc = 0;
+
+    /* +X face */
+    f = &hull->faces[hull->fc++];
+    f->si = -1; f->n = 4;
+    f->v[0][0] =  S; f->v[0][1] = -S; f->v[0][2] = -S;
+    f->v[1][0] =  S; f->v[1][1] =  S; f->v[1][2] = -S;
+    f->v[2][0] =  S; f->v[2][1] =  S; f->v[2][2] =  S;
+    f->v[3][0] =  S; f->v[3][1] = -S; f->v[3][2] =  S;
+
+    /* -X face */
+    f = &hull->faces[hull->fc++];
+    f->si = -1; f->n = 4;
+    f->v[0][0] = -S; f->v[0][1] =  S; f->v[0][2] = -S;
+    f->v[1][0] = -S; f->v[1][1] = -S; f->v[1][2] = -S;
+    f->v[2][0] = -S; f->v[2][1] = -S; f->v[2][2] =  S;
+    f->v[3][0] = -S; f->v[3][1] =  S; f->v[3][2] =  S;
+
+    /* +Y face */
+    f = &hull->faces[hull->fc++];
+    f->si = -1; f->n = 4;
+    f->v[0][0] =  S; f->v[0][1] =  S; f->v[0][2] = -S;
+    f->v[1][0] = -S; f->v[1][1] =  S; f->v[1][2] = -S;
+    f->v[2][0] = -S; f->v[2][1] =  S; f->v[2][2] =  S;
+    f->v[3][0] =  S; f->v[3][1] =  S; f->v[3][2] =  S;
+
+    /* -Y face */
+    f = &hull->faces[hull->fc++];
+    f->si = -1; f->n = 4;
+    f->v[0][0] = -S; f->v[0][1] = -S; f->v[0][2] = -S;
+    f->v[1][0] =  S; f->v[1][1] = -S; f->v[1][2] = -S;
+    f->v[2][0] =  S; f->v[2][1] = -S; f->v[2][2] =  S;
+    f->v[3][0] = -S; f->v[3][1] = -S; f->v[3][2] =  S;
+
+    /* +Z face */
+    f = &hull->faces[hull->fc++];
+    f->si = -1; f->n = 4;
+    f->v[0][0] =  S; f->v[0][1] = -S; f->v[0][2] =  S;
+    f->v[1][0] =  S; f->v[1][1] =  S; f->v[1][2] =  S;
+    f->v[2][0] = -S; f->v[2][1] =  S; f->v[2][2] =  S;
+    f->v[3][0] = -S; f->v[3][1] = -S; f->v[3][2] =  S;
+
+    /* -Z face */
+    f = &hull->faces[hull->fc++];
+    f->si = -1; f->n = 4;
+    f->v[0][0] =  S; f->v[0][1] =  S; f->v[0][2] = -S;
+    f->v[1][0] =  S; f->v[1][1] = -S; f->v[1][2] = -S;
+    f->v[2][0] = -S; f->v[2][1] = -S; f->v[2][2] = -S;
+    f->v[3][0] = -S; f->v[3][1] =  S; f->v[3][2] = -S;
+}
+
+/*
+ * Find a matching vertex in the lump or create a new one.
+ */
+static int find_or_add_vert(struct mapc_context *ctx,
+                            struct b_lump *lp,
+                            const float p[3],
+                            int *local_verts, int *local_count)
+{
+    struct s_base *fp = &ctx->file;
     float r[3];
     int i;
 
-    for (i = 0; i < lp->vc; i++)
+    for (i = 0; i < *local_count; i++)
     {
-        int vi = fp->iv[lp->v0 + i];
-
-        v_sub(r, p, fp->vv[vi].p);
+        v_sub(r, p, fp->vv[local_verts[i]].p);
 
         if (v_len(r) < SMALL)
-            return 0;
+            return local_verts[i];
     }
-    return 1;
+
+    {
+        int vi = incv(ctx);
+
+        v_cpy(fp->vv[vi].p, p);
+
+        fp->iv[inci(ctx)] = vi;
+        lp->vc++;
+
+        local_verts[*local_count] = vi;
+        (*local_count)++;
+
+        return vi;
+    }
 }
-
-static int on_side(const float p[3], const struct b_side *sp)
-{
-    float d = v_dot(p, sp->n) - sp->d;
-
-    return (-SMALL < d && d < +SMALL) ? 1 : 0;
-}
-
-/* Test whether a vertex lies on a given plane. */
-
-static int vert_on_plane(const struct mapc_context *ctx, int vi, int si)
-{
-    /* Fast path: check if this plane generated the vertex. */
-
-    if (ctx->vert_planes[vi][0] == si ||
-        ctx->vert_planes[vi][1] == si ||
-        ctx->vert_planes[vi][2] == si)
-        return 1;
-
-    /* Slow path: a vertex at the intersection of 4+ planes may not have
-     * this plane in its generating set. Fall back to a geometric test. */
-
-    /* return on_side(ctx->file.vv[vi].p, ctx->file.sv + si); */
-    return 0;
-}
-
-/*---------------------------------------------------------------------------*/
 
 /*
- * The following functions take the  set of planes defining a lump and
- * find the verts, edges, and  geoms that describe its boundaries.  To
- * do this, they first find the verts, and then search these verts for
- * valid edges and  geoms.  It may be more  efficient to compute edges
- * and  geoms directly  by clipping  down infinite  line  segments and
- * planes,  but this  would be  more  complex and  prone to  numerical
- * error.
+ * Emit a face's geometry as a triangle fan with texture coordinates.
  */
-
-/*
- * Given 3  side planes,  compute the point  of intersection,  if any.
- * Confirm that this point falls  within the current lump, and that it
- * is unique.  Add it as a vert of the solid.
- */
-static void clip_vert(struct mapc_context *ctx,
-                      struct b_lump *lp, int si, int sj, int sk)
+static void emit_face_geom(struct mapc_context *ctx,
+                           struct b_lump *lp,
+                           const struct clip_face *face,
+                           const int *vi_map)
 {
     struct s_base *fp = &ctx->file;
-    float M[16], X[16], I[16];
-    float d[3],  p[3];
+    int texc[CLIP_MAX_FACE_VERTS];
+    int si = face->si;
     int i;
 
-    d[0] = ctx->plane_d[si];
-    d[1] = ctx->plane_d[sj];
-    d[2] = ctx->plane_d[sk];
-
-    m_basis(M, ctx->plane_n[si], ctx->plane_n[sj], ctx->plane_n[sk]);
-    m_xps(X, M);
-
-    if (m_inv(I, X))
+    for (i = 0; i < face->n; i++)
     {
-        m_vxfm(p, I, d);
+        float tv[3];
 
-        for (i = 0; i < lp->sc; i++)
-        {
-            int sl = fp->iv[lp->s0 + i];
+        texc[i] = inct(ctx);
 
-            if (fore_side(p, fp->sv + sl))
-                return;
-        }
+        v_add(tv, face->v[i], ctx->plane_p[si]);
 
-        if (ok_vert(fp, lp, p))
-        {
-            int vi = incv(ctx);
-
-            v_cpy(fp->vv[vi].p, p);
-
-            ctx->vert_planes[vi][0] = si;
-            ctx->vert_planes[vi][1] = sj;
-            ctx->vert_planes[vi][2] = sk;
-
-            fp->iv[inci(ctx)] = vi;
-            lp->vc++;
-        }
-    }
-}
-
-/*
- * Given two  side planes,  find an edge  along their  intersection by
- * finding a pair of vertices that fall on both planes.  Add it to the
- * solid.
- */
-static void clip_edge(struct mapc_context *ctx,
-                      struct b_lump *lp, int si, int sj)
-{
-    struct s_base *fp = &ctx->file;
-    int i, j;
-
-    for (i = 1; i < lp->vc; i++)
-    {
-        int vi = fp->iv[lp->v0 + i];
-
-        if (!vert_on_plane(ctx, vi, si) ||
-            !vert_on_plane(ctx, vi, sj))
-            continue;
-
-        for (j = 0; j < i; j++)
-        {
-            int vj = fp->iv[lp->v0 + j];
-
-            if (vert_on_plane(ctx, vj, si) &&
-                vert_on_plane(ctx, vj, sj))
-            {
-                fp->ev[fp->ec].vi = vi;
-                fp->ev[fp->ec].vj = vj;
-
-                fp->iv[fp->ic] = fp->ec;
-
-                inci(ctx);
-                ince(ctx);
-                lp->ec++;
-            }
-        }
-    }
-}
-
-/*
- * Find all verts that lie on  the given side of the lump.  Sort these
- * verts to  have a counter-clockwise winding about  the plane normal.
- * Create geoms to tessellate the resulting convex polygon.
- */
-static void clip_geom(struct mapc_context *ctx,
-                      struct b_lump *lp, int si)
-{
-    struct s_base *fp = &ctx->file;
-    int   m[256], t[256], d, i, j, n = 0;
-    float u[3];
-    float v[3];
-    float w[3];
-
-    struct b_side *sp = fp->sv + si;
-
-    /* Find em. */
-
-    for (i = 0; i < lp->vc; i++)
-    {
-        int vi = fp->iv[lp->v0 + i];
-
-        if (vert_on_plane(ctx, vi, si))
-        {
-            m[n] = vi;
-            t[n] = inct(ctx);
-
-            v_add(v, fp->vv[vi].p, ctx->plane_p[si]);
-
-            fp->tv[t[n]].u[0] = v_dot(v, ctx->plane_u[si]);
-            fp->tv[t[n]].u[1] = v_dot(v, ctx->plane_v[si]);
-
-            if (++n >= ARRAYSIZE(m))
-            {
-                ERROR(ctx, "Over 256 vertices on one side, skipping the rest\n");
-                break;
-            }
-        }
+        fp->tv[texc[i]].u[0] = v_dot(tv, ctx->plane_u[si]);
+        fp->tv[texc[i]].u[1] = v_dot(tv, ctx->plane_v[si]);
     }
 
-    /* Sort em. */
-
-    for (i = 1; i < n; i++)
-        for (j = i + 1; j < n; j++)
-        {
-            v_sub(u, fp->vv[m[i]].p, fp->vv[m[0]].p);
-            v_sub(v, fp->vv[m[j]].p, fp->vv[m[0]].p);
-            v_crs(w, u, v);
-
-            if (v_dot(w, sp->n) < 0.f)
-            {
-                d     = m[i];
-                m[i]  = m[j];
-                m[j]  =    d;
-
-                d     = t[i];
-                t[i]  = t[j];
-                t[j]  =    d;
-            }
-        }
-
-    /* Index em. */
-
-    for (i = 0; i < n - 2; i++)
+    for (i = 0; i < face->n - 2; i++)
     {
         const int gi = incg(ctx);
 
@@ -2118,17 +2189,17 @@ static void clip_geom(struct mapc_context *ctx,
 
         gp->mi = ctx->plane_m[si];
 
-        op->ti = t[0];
-        oq->ti = t[i + 1];
-        or->ti = t[i + 2];
+        op->ti = texc[0];
+        oq->ti = texc[i + 1];
+        or->ti = texc[i + 2];
 
         op->si = si;
         oq->si = si;
         or->si = si;
 
-        op->vi = m[0];
-        oq->vi = m[i + 1];
-        or->vi = m[i + 2];
+        op->vi = vi_map[0];
+        oq->vi = vi_map[i + 1];
+        or->vi = vi_map[i + 2];
 
         fp->iv[fp->ic] = gi;
         lp->gc++;
@@ -2137,41 +2208,92 @@ static void clip_geom(struct mapc_context *ctx,
 }
 
 /*
- * Iterate the sides of the lump, attempting to generate a new vert for
- * each trio of planes, a new edge  for each pair of planes, and a new
- * set of geom for each visible plane.
+ * Build the convex hull for a lump by clipping an AABB against each
+ * brush plane, then emit verts, edges, and geoms from the result.
  */
 static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
 {
     struct s_base *fp = &ctx->file;
-    int i, j, k;
+    struct clip_hull hull;
+    int face_vi[CLIP_MAX_FACES][CLIP_MAX_FACE_VERTS];
+    int local_verts[4096];
+    int local_count = 0;
+    int i, j;
+
+    /* Build the convex hull by clipping an AABB against each brush plane. */
+
+    init_hull(&hull);
+
+    for (i = 0; i < lp->sc; i++)
+    {
+        int si = fp->iv[lp->s0 + i];
+
+        clip_hull_by_plane(&hull, ctx->plane_n[si], ctx->plane_d[si], si);
+    }
+
+    /* Emit vertices. */
 
     lp->v0 = fp->ic;
     lp->vc = 0;
 
-    for (i = 2; i < lp->sc; i++)
-        for (j = 1; j < i; j++)
-            for (k = 0; k < j; k++)
-                clip_vert(ctx, lp,
-                          fp->iv[lp->s0 + i],
-                          fp->iv[lp->s0 + j],
-                          fp->iv[lp->s0 + k]);
+    for (i = 0; i < hull.fc; i++)
+        for (j = 0; j < hull.faces[i].n; j++)
+            face_vi[i][j] = find_or_add_vert(ctx, lp, hull.faces[i].v[j],
+                                             local_verts, &local_count);
+
+    /* Emit edges. */
 
     lp->e0 = fp->ic;
     lp->ec = 0;
 
-    for (i = 1; i < lp->sc; i++)
-        for (j = 0; j < i; j++)
-            clip_edge(ctx, lp,
-                      fp->iv[lp->s0 + i],
-                      fp->iv[lp->s0 + j]);
+    for (i = 0; i < hull.fc; i++)
+    {
+        if (hull.faces[i].si < 0)
+            continue;
+
+        for (j = 0; j < hull.faces[i].n; j++)
+        {
+            int va = face_vi[i][j];
+            int vb = face_vi[i][(j + 1) % hull.faces[i].n];
+            int k, dup = 0;
+
+            for (k = 0; k < lp->ec; k++)
+            {
+                int ei = fp->iv[lp->e0 + k];
+
+                if ((fp->ev[ei].vi == va && fp->ev[ei].vj == vb) ||
+                    (fp->ev[ei].vi == vb && fp->ev[ei].vj == va))
+                {
+                    dup = 1;
+                    break;
+                }
+            }
+
+            if (!dup)
+            {
+                fp->ev[fp->ec].vi = va;
+                fp->ev[fp->ec].vj = vb;
+
+                fp->iv[fp->ic] = fp->ec;
+
+                inci(ctx);
+                ince(ctx);
+                lp->ec++;
+            }
+        }
+    }
+
+    /* Emit geoms. */
 
     lp->g0 = fp->ic;
     lp->gc = 0;
 
-    for (i = 0; i < lp->sc; i++)
-        if (fp->mv[ctx->plane_m[fp->iv[lp->s0 + i]]].d[3] > 0.0f)
-            clip_geom(ctx, lp, fp->iv[lp->s0 + i]);
+    for (i = 0; i < hull.fc; i++)
+        if (hull.faces[i].si >= 0 &&
+            fp->mv[ctx->plane_m[hull.faces[i].si]].d[3] > 0.0f)
+            emit_face_geom(ctx, lp, &hull.faces[i], face_vi[i]);
+
+    /* Check detail flag. */
 
     for (i = 0; i < lp->sc; i++)
         if (ctx->plane_f[fp->iv[lp->s0 + i]])
