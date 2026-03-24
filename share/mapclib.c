@@ -1894,7 +1894,7 @@ static void read_map(struct mapc_context *ctx, fs_file fin)
  */
 
 #define CLIP_MAX_FACE_VERTS 64
-#define CLIP_MAX_FACES      64
+#define CLIP_MAX_FACES      256
 #define CLIP_MAX_CUTS       (CLIP_MAX_FACES * 2)
 
 struct clip_face {
@@ -1936,6 +1936,14 @@ static void clip_face_by_plane(struct clip_face *face,
             {
                 v_cpy(tmp[tc], face->v[i]);
                 tc++;
+            }
+
+            /* On-plane vertices are also intersection points. */
+
+            if (dist[i] >= -SMALL && *cut_count < CLIP_MAX_CUTS)
+            {
+                v_cpy(cuts[*cut_count], face->v[i]);
+                (*cut_count)++;
             }
         }
 
@@ -2058,43 +2066,71 @@ static void clip_hull_by_plane(struct clip_hull *hull,
 }
 
 /*
- * Compute a bounding box for the brush from its plane equations.
- *
- * For each of the 6 axis directions, the brush extent is bounded by
- * d / (n · axis) for each plane where the denominator is positive.
+ * Compute a tight AABB for a brush by intersecting all plane triples
+ * and keeping vertices that satisfy all half-spaces.
  */
-static float brush_extent(const float plane_n[][3],
-                          const float plane_d[],
-                          int s0, int sc,
-                          const int *iv)
+static float brush_aabb(const float plane_n[][3],
+                        const float plane_d[],
+                        int s0, int sc,
+                        const int *iv)
 {
-    float extent = 0.f;
-    int i, j;
+    float S = 64.f;
+    int i, j, k, l;
 
-    for (i = 0; i < sc; i++)
+    for (i = 2; i < sc; i++)
     {
-        int si = iv[s0 + i];
-
-        for (j = 0; j < 3; j++)
+        for (j = 1; j < i; j++)
         {
-            if (plane_n[si][j] > SMALL)
+            for (k = 0; k < j; k++)
             {
-                float e = plane_d[si] / plane_n[si][j];
+                int si = iv[s0 + i];
+                int sj = iv[s0 + j];
+                int sk = iv[s0 + k];
 
-                if (e > extent)
-                    extent = e;
-            }
-            if (plane_n[si][j] < -SMALL)
-            {
-                float e = -plane_d[si] / plane_n[si][j];
+                float M[16], X[16], I[16];
+                float d[3], p[3];
+                int inside;
 
-                if (e > extent)
-                    extent = e;
+                d[0] = plane_d[si];
+                d[1] = plane_d[sj];
+                d[2] = plane_d[sk];
+
+                m_basis(M, plane_n[si], plane_n[sj], plane_n[sk]);
+                m_xps(X, M);
+
+                if (!m_inv(I, X))
+                    continue;
+
+                m_vxfm(p, I, d);
+
+                /* Check that the vertex is inside all half-spaces. */
+
+                inside = 1;
+
+                for (l = 0; l < sc; l++)
+                {
+                    int sl = iv[s0 + l];
+
+                    if (v_dot(p, plane_n[sl]) - plane_d[sl] > SMALL)
+                    {
+                        inside = 0;
+                        break;
+                    }
+                }
+
+                if (inside)
+                {
+                    float e;
+
+                    e = (float) fabs(p[0]); if (e > S) S = e;
+                    e = (float) fabs(p[1]); if (e > S) S = e;
+                    e = (float) fabs(p[2]); if (e > S) S = e;
+                }
             }
         }
     }
 
-    return extent + 1.f;
+    return S + 1.f;
 }
 
 /*
@@ -2261,8 +2297,8 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
     /* Build the convex hull by clipping an AABB against each brush plane. */
 
     {
-        float S = brush_extent(ctx->plane_n, ctx->plane_d,
-                               lp->s0, lp->sc, fp->iv);
+        float S = brush_aabb(ctx->plane_n, ctx->plane_d,
+                             lp->s0, lp->sc, fp->iv);
 
         init_hull(&hull, S);
     }
