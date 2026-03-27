@@ -50,6 +50,7 @@
 #define MAXKEY 16
 #define SCALE  64.f
 #define SMALL  0.0005f
+#define HULL_SIZE 8192.f
 
 /*
  * The overall design  of this map converter is  very stupid, but very
@@ -2233,7 +2234,7 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
      * AABB (which itself requires O(n^3) plane-triple intersection).
      */
 
-    init_hull(&hull, 4096.f);
+    init_hull(&hull, HULL_SIZE);
 
     for (i = 0; i < lp->sc; i++)
     {
