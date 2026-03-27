@@ -1899,9 +1899,9 @@ static void read_map(struct mapc_context *ctx, fs_file fin)
 #define CLIP_MAX_CUTS       (CLIP_MAX_FACES * 2)
 
 struct clip_face {
-    float v[CLIP_MAX_FACE_VERTS][3];
-    int   n;
-    int   si;  /* side index, or -1 for initial AABB faces */
+    double v[CLIP_MAX_FACE_VERTS][3];
+    int    n;
+    int    si;  /* side index, or -1 for initial AABB faces */
 };
 
 struct clip_hull {
@@ -1915,17 +1915,19 @@ struct clip_hull {
  */
 static void clip_face_by_plane(struct clip_face *face,
                                const float n[3], float d,
-                               float cuts[][3], int *cut_count)
+                               double cuts[][3], int *cut_count)
 {
-    float tmp[CLIP_MAX_FACE_VERTS][3];
-    float dist[CLIP_MAX_FACE_VERTS];
+    double tmp[CLIP_MAX_FACE_VERTS][3];
+    double dist[CLIP_MAX_FACE_VERTS];
     int i, tc = 0;
 
     if (face->n < 3)
         return;
 
     for (i = 0; i < face->n; i++)
-        dist[i] = v_dot(face->v[i], n) - d;
+        dist[i] = face->v[i][0] * n[0]
+                + face->v[i][1] * n[1]
+                + face->v[i][2] * n[2] - d;
 
     for (i = 0; i < face->n; i++)
     {
@@ -1951,11 +1953,12 @@ static void clip_face_by_plane(struct clip_face *face,
         if ((dist[i] > SMALL && dist[j] < -SMALL) ||
             (dist[i] < -SMALL && dist[j] > SMALL))
         {
-            float t = dist[i] / (dist[i] - dist[j]);
-            float p[3];
+            double t = dist[i] / (dist[i] - dist[j]);
+            double p[3];
 
-            v_sub(p, face->v[j], face->v[i]);
-            v_mad(p, face->v[i], p, t);
+            p[0] = face->v[i][0] + (face->v[j][0] - face->v[i][0]) * t;
+            p[1] = face->v[i][1] + (face->v[j][1] - face->v[i][1]) * t;
+            p[2] = face->v[i][2] + (face->v[j][2] - face->v[i][2]) * t;
 
             if (tc < CLIP_MAX_FACE_VERTS)
             {
@@ -1987,15 +1990,18 @@ static void sort_face_ccw(struct clip_face *face, const float n[3])
     for (i = 1; i < face->n; i++)
         for (j = i + 1; j < face->n; j++)
         {
-            float u[3], v[3], w[3];
+            double u[3], v[3], w[3];
 
             v_sub(u, face->v[i], face->v[0]);
             v_sub(v, face->v[j], face->v[0]);
-            v_crs(w, u, v);
 
-            if (v_dot(w, n) < 0.f)
+            w[0] = u[1] * v[2] - u[2] * v[1];
+            w[1] = u[2] * v[0] - u[0] * v[2];
+            w[2] = u[0] * v[1] - u[1] * v[0];
+
+            if (w[0] * n[0] + w[1] * n[1] + w[2] * n[2] < 0.0)
             {
-                float t[3];
+                double t[3];
 
                 v_cpy(t,          face->v[i]);
                 v_cpy(face->v[i], face->v[j]);
@@ -2011,7 +2017,7 @@ static void sort_face_ccw(struct clip_face *face, const float n[3])
 static void clip_hull_by_plane(struct clip_hull *hull,
                                const float n[3], float d, int si)
 {
-    float cuts[CLIP_MAX_CUTS][3];
+    double cuts[CLIP_MAX_CUTS][3];
     int cut_count = 0;
     int i, j;
 
@@ -2040,11 +2046,11 @@ static void clip_hull_by_plane(struct clip_hull *hull,
 
             for (j = 0; j < cap->n; j++)
             {
-                float r[3];
+                double r[3];
 
                 v_sub(r, cuts[i], cap->v[j]);
 
-                if (v_len(r) < SMALL)
+                if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] < (double) SMALL * SMALL)
                 {
                     dup = 1;
                     break;
@@ -2178,7 +2184,9 @@ static void emit_face_geom(struct mapc_context *ctx,
 
         texc[i] = inct(ctx);
 
-        v_add(tv, face->v[i], ctx->plane_p[si]);
+        tv[0] = (float) face->v[i][0] + ctx->plane_p[si][0];
+        tv[1] = (float) face->v[i][1] + ctx->plane_p[si][1];
+        tv[2] = (float) face->v[i][2] + ctx->plane_p[si][2];
 
         fp->tv[texc[i]].u[0] = v_dot(tv, ctx->plane_u[si]);
         fp->tv[texc[i]].u[1] = v_dot(tv, ctx->plane_v[si]);
@@ -2251,8 +2259,16 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
     for (i = 0; i < hull.fc; i++)
         if (hull.faces[i].si >= 0)
             for (j = 0; j < hull.faces[i].n; j++)
-                face_vi[i][j] = find_or_add_vert(ctx, lp, hull.faces[i].v[j],
+            {
+                float p[3];
+
+                p[0] = (float) hull.faces[i].v[j][0];
+                p[1] = (float) hull.faces[i].v[j][1];
+                p[2] = (float) hull.faces[i].v[j][2];
+
+                face_vi[i][j] = find_or_add_vert(ctx, lp, p,
                                                  local_verts, &local_count);
+            }
 
     /* Emit edges. */
 
