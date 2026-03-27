@@ -50,7 +50,7 @@
 #define MAXKEY 16
 #define SCALE  64.f
 #define SMALL  0.0005f
-#define HULL_SIZE 8192.f
+#define HULL_SIZE 4096.f
 
 /*
  * The overall design  of this map converter is  very stupid, but very
