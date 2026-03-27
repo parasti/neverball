@@ -60,4 +60,4 @@ For a correct box brush (6 planes), expect 6 faces with either 4 or 6 geoms per 
 
 ### Hull initialization
 
-The polyhedron clipper starts from an axis-aligned bounding box and clips it by each brush plane. The initial AABB must fully contain the brush. `brush_aabb` computes a tight box via O(n³) plane-triple intersection. A simpler approach (large fixed box, e.g. `S=4096`) would also be correct — the clipper trims it down regardless — but wastes intermediate clipping work on faces far from the brush.
+The polyhedron clipper starts from an axis-aligned bounding box and clips it by each brush plane. The initial AABB must fully contain the brush — too small and the clipper destroys valid faces. A large fixed box (`S=4096`) works correctly and avoids computing a tight AABB. The size doesn't affect the final result (same geom/vert/edge/side counts), only intermediate clipping work. A per-axis projection (d/n_j) is insufficient for brushes with diagonal planes.
