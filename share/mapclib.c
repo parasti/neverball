@@ -1894,7 +1894,7 @@ static void read_map(struct mapc_context *ctx, fs_file fin)
  * directly give us the vertices, edges, and faces of the brush.
  */
 
-#define CLIP_MAX_FACE_VERTS 64
+#define CLIP_MAX_FACE_VERTS 256
 #define CLIP_MAX_FACES      256
 #define CLIP_MAX_CUTS       (CLIP_MAX_FACES * 2)
 
