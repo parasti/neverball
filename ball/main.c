@@ -67,6 +67,7 @@ static char *opt_data;
 static char *opt_replay;
 static char *opt_level;
 static char *opt_link;
+static int   opt_cheat;
 
 #define opt_usage                                                     \
     "Usage: %s [options ...]\n"                                       \
@@ -131,6 +132,12 @@ static void opt_init(int argc, char **argv)
                 exit(EXIT_FAILURE);
             }
             opt_level = argv[++i];
+            continue;
+        }
+
+        if (strcmp(argv[i], "--cheat") == 0)
+        {
+            opt_cheat = 1;
             continue;
         }
 
@@ -886,6 +893,9 @@ static int main_init(int argc, char *argv[])
 
     config_init();
     config_load();
+
+    if (opt_cheat)
+        config_set_cheat();
 
     fetch_enable(config_get_d(CONFIG_ONLINE));
 
