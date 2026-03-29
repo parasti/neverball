@@ -556,7 +556,6 @@ General Public License for more details.
           <div class="flex gap-2 items-center mb-4">
             <button id="run-button" type="button" class="neverball-button" disabled autocomplete="off">Play Now</button>
             <button id="test-button" type="button" class="neverball-button" disabled autocomplete="off" onclick="Neverball.arguments = ['--cheat', '--level', 'map-easy/invisible_face2.sol']; document.getElementById('run-button').click();">Test Map</button>
-            <button id="test-roundlaby-button" type="button" class="neverball-button" disabled autocomplete="off" onclick="Neverball.arguments = ['--cheat', '--level', 'map-easy/roundlaby.sol']; document.getElementById('run-button').click();">Test Roundlaby</button>
             <div id="status" class="text-white"></div>
           </div>
 
@@ -1427,7 +1426,6 @@ General Public License for more details.
 
         this._runButton.disabled = false;
         document.getElementById('test-button').disabled = false;
-        document.getElementById('test-roundlaby-button').disabled = false;
       },
 
       prepareApp: async function () {
