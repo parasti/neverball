@@ -1194,52 +1194,6 @@ static int map_token(struct mapc_context *ctx, fs_file fin, int pi, char key[MAX
 
 /* Parse a lump from the given file and add it to the solid. */
 
-/*
- * Snap a newly-parsed plane to an existing lump plane if their normals and
- * distances are nearly identical.  This fixes invisible-face bugs caused by
- * map editors emitting imprecise floating-point coordinates: two faces that
- * should be coplanar end up with slightly different plane equations, which
- * prevents vertices from being recognized as lying on both planes during CSG.
- */
-static void snap_plane(struct mapc_context *ctx, int pi, int s0, int sc)
-{
-    int i;
-
-    for (i = 0; i < sc; i++)
-    {
-        int si = ctx->file.iv[s0 + i];
-
-        float dot = v_dot(ctx->plane_n[pi], ctx->plane_n[si]);
-
-        if (dot > 1.0f - 1e-4f)
-        {
-            /* Same direction: check distance. */
-
-            if (fabsf(ctx->plane_d[pi] - ctx->plane_d[si]) < 5e-3f)
-            {
-                v_cpy(ctx->plane_n[pi], ctx->plane_n[si]);
-                ctx->plane_d[pi] = ctx->plane_d[si];
-
-                return;
-            }
-        }
-        else if (dot < -1.0f + 1e-4f)
-        {
-            /* Opposite direction: check distance. */
-
-            if (fabsf(ctx->plane_d[pi] + ctx->plane_d[si]) < 5e-3f)
-            {
-                ctx->plane_n[pi][0] = -ctx->plane_n[si][0];
-                ctx->plane_n[pi][1] = -ctx->plane_n[si][1];
-                ctx->plane_n[pi][2] = -ctx->plane_n[si][2];
-                ctx->plane_d[pi]    = -ctx->plane_d[si];
-
-                return;
-            }
-        }
-    }
-}
-
 static void read_lump(struct mapc_context *ctx, fs_file fin)
 {
     struct s_base *fp = &ctx->file;
@@ -1255,8 +1209,6 @@ static void read_lump(struct mapc_context *ctx, fs_file fin)
     {
         if (t == T_CLP)
         {
-            snap_plane(ctx, fp->sc, lp->s0, lp->sc);
-
             fp->sv[fp->sc].n[0] = ctx->plane_n[fp->sc][0];
             fp->sv[fp->sc].n[1] = ctx->plane_n[fp->sc][1];
             fp->sv[fp->sc].n[2] = ctx->plane_n[fp->sc][2];
