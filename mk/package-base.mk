@@ -16,10 +16,13 @@ ASSET_PATHS := \
 	lights.txt \
 	map-back \
 	map-easy \
+	map-fwp \
 	png \
 	set-easy.txt \
+	set-fwp.txt \
 	sets.txt \
 	shot-easy \
+	shot-fwp \
 	snd \
 	textures \
 	ttf
