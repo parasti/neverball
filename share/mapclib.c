@@ -171,10 +171,8 @@ struct mapc_context
     int image_n;
     int image_alloc;
 
-    float plane_d[MAXS];
-    float plane_n[MAXS][3];
-    double dplane_d[MAXS];
-    double dplane_n[MAXS][3];
+    double plane_d[MAXS];
+    double plane_n[MAXS][3];
     float plane_p[MAXS][3];
     float plane_u[MAXS][3];
     float plane_v[MAXS][3];
@@ -1069,11 +1067,10 @@ static void make_plane(struct mapc_context *ctx, int   pi, double x0, double y0,
     };
 
     float R[16];
-    float p0[3], p1[3], p2[3];
-    double dp0[3], dp1[3], dp2[3];
-    double du[3], dv[3], dn[3];
-    float u[3],  v[3],  p[3];
-    float k, d = 0.0f;
+    double p0[3], p1[3], p2[3];
+    double u[3], v[3], dn[3];
+    float p[3];
+    double k, d = 0.0;
     int   i, n = 0;
     int   w, h;
 
@@ -1081,38 +1078,16 @@ static void make_plane(struct mapc_context *ctx, int   pi, double x0, double y0,
 
     ctx->plane_f[pi] = fl ? L_DETAIL : 0;
 
-    p0[0] = (float)(+x0 / SCALE);
-    p0[1] = (float)(+z0 / SCALE);
-    p0[2] = (float)(-y0 / SCALE);
+    p0[0] = +x0 / SCALE; p0[1] = +z0 / SCALE; p0[2] = -y0 / SCALE;
+    p1[0] = +x1 / SCALE; p1[1] = +z1 / SCALE; p1[2] = -y1 / SCALE;
+    p2[0] = +x2 / SCALE; p2[1] = +z2 / SCALE; p2[2] = -y2 / SCALE;
 
-    p1[0] = (float)(+x1 / SCALE);
-    p1[1] = (float)(+z1 / SCALE);
-    p1[2] = (float)(-y1 / SCALE);
+    u[0] = p0[0] - p1[0]; u[1] = p0[1] - p1[1]; u[2] = p0[2] - p1[2];
+    v[0] = p2[0] - p1[0]; v[1] = p2[1] - p1[1]; v[2] = p2[2] - p1[2];
 
-    p2[0] = (float)(+x2 / SCALE);
-    p2[1] = (float)(+z2 / SCALE);
-    p2[2] = (float)(-y2 / SCALE);
-
-    v_sub(u, p0, p1);
-    v_sub(v, p2, p1);
-
-    v_crs(ctx->plane_n[pi], u, v);
-    v_nrm(ctx->plane_n[pi], ctx->plane_n[pi]);
-
-    ctx->plane_d[pi] = v_dot(ctx->plane_n[pi], p1);
-
-    /* Double-precision plane equation for hull clipping. */
-
-    dp0[0] = +x0 / SCALE; dp0[1] = +z0 / SCALE; dp0[2] = -y0 / SCALE;
-    dp1[0] = +x1 / SCALE; dp1[1] = +z1 / SCALE; dp1[2] = -y1 / SCALE;
-    dp2[0] = +x2 / SCALE; dp2[1] = +z2 / SCALE; dp2[2] = -y2 / SCALE;
-
-    du[0] = dp0[0] - dp1[0]; du[1] = dp0[1] - dp1[1]; du[2] = dp0[2] - dp1[2];
-    dv[0] = dp2[0] - dp1[0]; dv[1] = dp2[1] - dp1[1]; dv[2] = dp2[2] - dp1[2];
-
-    dn[0] = du[1] * dv[2] - du[2] * dv[1];
-    dn[1] = du[2] * dv[0] - du[0] * dv[2];
-    dn[2] = du[0] * dv[1] - du[1] * dv[0];
+    dn[0] = u[1]*v[2] - u[2]*v[1];
+    dn[1] = u[2]*v[0] - u[0]*v[2];
+    dn[2] = u[0]*v[1] - u[1]*v[0];
 
     {
         double len = sqrt(dn[0]*dn[0] + dn[1]*dn[1] + dn[2]*dn[2]);
@@ -1123,10 +1098,10 @@ static void make_plane(struct mapc_context *ctx, int   pi, double x0, double y0,
         }
     }
 
-    ctx->dplane_n[pi][0] = dn[0];
-    ctx->dplane_n[pi][1] = dn[1];
-    ctx->dplane_n[pi][2] = dn[2];
-    ctx->dplane_d[pi]    = dn[0]*dp1[0] + dn[1]*dp1[1] + dn[2]*dp1[2];
+    ctx->plane_n[pi][0] = dn[0];
+    ctx->plane_n[pi][1] = dn[1];
+    ctx->plane_n[pi][2] = dn[2];
+    ctx->plane_d[pi]    = dn[0]*p1[0] + dn[1]*p1[1] + dn[2]*p1[2];
 
     for (i = 0; i < 6; i++)
         if ((k = v_dot(ctx->plane_n[pi], base[i][0])) >= d)
@@ -1240,10 +1215,10 @@ static void read_lump(struct mapc_context *ctx, fs_file fin)
     {
         if (t == T_CLP)
         {
-            fp->sv[fp->sc].n[0] = ctx->plane_n[fp->sc][0];
-            fp->sv[fp->sc].n[1] = ctx->plane_n[fp->sc][1];
-            fp->sv[fp->sc].n[2] = ctx->plane_n[fp->sc][2];
-            fp->sv[fp->sc].d    = ctx->plane_d[fp->sc];
+            fp->sv[fp->sc].n[0] = (float) ctx->plane_n[fp->sc][0];
+            fp->sv[fp->sc].n[1] = (float) ctx->plane_n[fp->sc][1];
+            fp->sv[fp->sc].n[2] = (float) ctx->plane_n[fp->sc][2];
+            fp->sv[fp->sc].d    = (float) ctx->plane_d[fp->sc];
 
             ctx->plane_m[fp->sc] = read_mtrl(ctx, k);
 
@@ -2335,8 +2310,8 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
     for (k = 0; k < lp->sc && fc < CLIP_MAX_FACES; k++)
     {
         int si_k = fp->iv[lp->s0 + k];
-        const double *nk = ctx->dplane_n[si_k];
-        double dk = ctx->dplane_d[si_k];
+        const double *nk = ctx->plane_n[si_k];
+        double dk = ctx->plane_d[si_k];
         struct clip_face *f = &faces[fc];
 
         /* Point on the plane: nk * dk. */
@@ -2407,8 +2382,8 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
             {
                 int si_j = fp->iv[lp->s0 + j];
 
-                clip_poly_by_halfspace(f, ctx->dplane_n[si_j],
-                                       ctx->dplane_d[si_j]);
+                clip_poly_by_halfspace(f, ctx->plane_n[si_j],
+                                       ctx->plane_d[si_j]);
             }
 
             if (f->n < 3) break;
