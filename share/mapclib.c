@@ -49,7 +49,7 @@
 #define MAXSTR 256
 #define MAXKEY 16
 #define SCALE  64.f
-#define SMALL  0.0005f
+#define SMALL 0.0005f
 #define HULL_SIZE 4096.f
 
 /*
@@ -173,6 +173,8 @@ struct mapc_context
 
     float plane_d[MAXS];
     float plane_n[MAXS][3];
+    double dplane_d[MAXS];
+    double dplane_n[MAXS][3];
     float plane_p[MAXS][3];
     float plane_u[MAXS][3];
     float plane_v[MAXS][3];
@@ -1051,9 +1053,9 @@ static void read_obj(struct mapc_context *ctx, const char *name, int mi)
 
 /*---------------------------------------------------------------------------*/
 
-static void make_plane(struct mapc_context *ctx, int   pi, float x0, float y0, float z0,
-                       float x1, float y1, float z1,
-                       float x2, float y2, float z2,
+static void make_plane(struct mapc_context *ctx, int   pi, double x0, double y0, double z0,
+                       double x1, double y1, double z1,
+                       double x2, double y2, double z2,
                        float tu, float tv, float r,
                        float su, float sv, int   fl, const char *s)
 {
@@ -1068,6 +1070,8 @@ static void make_plane(struct mapc_context *ctx, int   pi, float x0, float y0, f
 
     float R[16];
     float p0[3], p1[3], p2[3];
+    double dp0[3], dp1[3], dp2[3];
+    double du[3], dv[3], dn[3];
     float u[3],  v[3],  p[3];
     float k, d = 0.0f;
     int   i, n = 0;
@@ -1077,17 +1081,17 @@ static void make_plane(struct mapc_context *ctx, int   pi, float x0, float y0, f
 
     ctx->plane_f[pi] = fl ? L_DETAIL : 0;
 
-    p0[0] = +x0 / SCALE;
-    p0[1] = +z0 / SCALE;
-    p0[2] = -y0 / SCALE;
+    p0[0] = (float)(+x0 / SCALE);
+    p0[1] = (float)(+z0 / SCALE);
+    p0[2] = (float)(-y0 / SCALE);
 
-    p1[0] = +x1 / SCALE;
-    p1[1] = +z1 / SCALE;
-    p1[2] = -y1 / SCALE;
+    p1[0] = (float)(+x1 / SCALE);
+    p1[1] = (float)(+z1 / SCALE);
+    p1[2] = (float)(-y1 / SCALE);
 
-    p2[0] = +x2 / SCALE;
-    p2[1] = +z2 / SCALE;
-    p2[2] = -y2 / SCALE;
+    p2[0] = (float)(+x2 / SCALE);
+    p2[1] = (float)(+z2 / SCALE);
+    p2[2] = (float)(-y2 / SCALE);
 
     v_sub(u, p0, p1);
     v_sub(v, p2, p1);
@@ -1096,6 +1100,33 @@ static void make_plane(struct mapc_context *ctx, int   pi, float x0, float y0, f
     v_nrm(ctx->plane_n[pi], ctx->plane_n[pi]);
 
     ctx->plane_d[pi] = v_dot(ctx->plane_n[pi], p1);
+
+    /* Double-precision plane equation for hull clipping. */
+
+    dp0[0] = +x0 / SCALE; dp0[1] = +z0 / SCALE; dp0[2] = -y0 / SCALE;
+    dp1[0] = +x1 / SCALE; dp1[1] = +z1 / SCALE; dp1[2] = -y1 / SCALE;
+    dp2[0] = +x2 / SCALE; dp2[1] = +z2 / SCALE; dp2[2] = -y2 / SCALE;
+
+    du[0] = dp0[0] - dp1[0]; du[1] = dp0[1] - dp1[1]; du[2] = dp0[2] - dp1[2];
+    dv[0] = dp2[0] - dp1[0]; dv[1] = dp2[1] - dp1[1]; dv[2] = dp2[2] - dp1[2];
+
+    dn[0] = du[1] * dv[2] - du[2] * dv[1];
+    dn[1] = du[2] * dv[0] - du[0] * dv[2];
+    dn[2] = du[0] * dv[1] - du[1] * dv[0];
+
+    {
+        double len = sqrt(dn[0]*dn[0] + dn[1]*dn[1] + dn[2]*dn[2]);
+
+        if (len > 0.0)
+        {
+            dn[0] /= len; dn[1] /= len; dn[2] /= len;
+        }
+    }
+
+    ctx->dplane_n[pi][0] = dn[0];
+    ctx->dplane_n[pi][1] = dn[1];
+    ctx->dplane_n[pi][2] = dn[2];
+    ctx->dplane_d[pi]    = dn[0]*dp1[0] + dn[1]*dp1[1] + dn[2]*dp1[2];
 
     for (i = 0; i < 6; i++)
         if ((k = v_dot(ctx->plane_n[pi], base[i][0])) >= d)
@@ -1141,9 +1172,9 @@ static int map_token(struct mapc_context *ctx, fs_file fin, int pi, char key[MAX
 
     if (fs_gets(buf, MAXSTR, fin))
     {
-        float x0, y0, z0;
-        float x1, y1, z1;
-        float x2, y2, z2;
+        double dx0, dy0, dz0;
+        double dx1, dy1, dz1;
+        double dx2, dy2, dz2;
         float tu, tv, r;
         float su, sv;
         int fl = 0;
@@ -1167,18 +1198,18 @@ static int map_token(struct mapc_context *ctx, fs_file fin, int pi, char key[MAX
         /* Scan a plane. */
 
         if (sscanf(buf,
-                   "( %f %f %f ) "
-                   "( %f %f %f ) "
-                   "( %f %f %f ) "
+                   "( %lf %lf %lf ) "
+                   "( %lf %lf %lf ) "
+                   "( %lf %lf %lf ) "
                    "%s %f %f %f %f %f %d",
-                   &x0, &y0, &z0,
-                   &x1, &y1, &z1,
-                   &x2, &y2, &z2,
+                   &dx0, &dy0, &dz0,
+                   &dx1, &dy1, &dz1,
+                   &dx2, &dy2, &dz2,
                    key, &tu, &tv, &r, &su, &sv, &fl) >= 15)
         {
-            make_plane(ctx, pi, x0, y0, z0,
-                       x1, y1, z1,
-                       x2, y2, z2,
+            make_plane(ctx, pi, dx0, dy0, dz0,
+                       dx1, dy1, dz1,
+                       dx2, dy2, dz2,
                        tu, tv, r, su, sv, fl, key);
             return T_CLP;
         }
@@ -1839,11 +1870,13 @@ static void read_map(struct mapc_context *ctx, fs_file fin)
 /*---------------------------------------------------------------------------*/
 
 /*
- * Polyhedron clipping.
+ * Per-face polygon clipping (TrenchBroom-style).
  *
- * Build a convex polyhedron by starting with a large axis-aligned bounding
- * box and clipping it against each brush plane.  The resulting polygons
- * directly give us the vertices, edges, and faces of the brush.
+ * For each brush face, start with a large polygon on that plane and clip it
+ * by all other brush planes.  This avoids hull-order-dependent contamination
+ * from nearly-coplanar planes.
+ *
+ * The polyhedron hull functions below are still present but unused.
  */
 
 #define CLIP_MAX_FACE_VERTS 256
@@ -1852,6 +1885,7 @@ static void read_map(struct mapc_context *ctx, fs_file fin)
 
 struct clip_face {
     double v[CLIP_MAX_FACE_VERTS][3];
+    double normal[3];  /* outward-facing plane normal of this face */
     int    n;
     int    si;  /* side index, or -1 for initial AABB faces */
 };
@@ -1866,9 +1900,24 @@ struct clip_hull {
  * (where dot(p, n) - d <= 0).  Intersection points are appended to cuts[].
  */
 static void clip_face_by_plane(struct clip_face *face,
-                               const float n[3], float d,
+                               const double n[3], double d,
                                double cuts[][3], int *cut_count)
 {
+    /* If this face's plane is nearly parallel to the cutting plane,
+     * its vertices near the cutting plane are contamination artifacts
+     * (they were snapped to the face's own plane, not to the cutting
+     * plane).  Skip their on-plane contribution to avoid inflating the
+     * cap polygon.  Edge-crossing intersections are still collected
+     * because they land exactly on the cutting plane.
+     *
+     * Threshold: cos(~0.1 deg) ≈ 0.99999.  Brushes with nearly-parallel
+     * faces (which would be degenerate slabs) are the only case where
+     * the dot product is this high.
+     */
+    double ndot = fabs(face->normal[0] * n[0] +
+                       face->normal[1] * n[1] +
+                       face->normal[2] * n[2]);
+    int parallel = ndot > 1.0 - 1e-5;
     double tmp[CLIP_MAX_FACE_VERTS][3];
     double dist[CLIP_MAX_FACE_VERTS];
     int i, tc = 0;
@@ -1893,11 +1942,18 @@ static void clip_face_by_plane(struct clip_face *face,
                 tc++;
             }
 
-            /* On-plane vertices are also intersection points. */
-
-            if (dist[i] >= -SMALL && *cut_count < CLIP_MAX_CUTS)
+            /* On-plane vertices are also cap boundary points, unless
+             * this face's plane is nearly parallel to the cutting plane
+             * (those vertices are contamination, not true intersections). */
+            if (!parallel
+                && dist[i] >= -SMALL && dist[i] <= SMALL
+                && *cut_count < CLIP_MAX_CUTS)
             {
-                v_cpy(cuts[*cut_count], face->v[i]);
+                double snapped[3];
+                snapped[0] = face->v[i][0] - dist[i] * n[0];
+                snapped[1] = face->v[i][1] - dist[i] * n[1];
+                snapped[2] = face->v[i][2] - dist[i] * n[2];
+                v_cpy(cuts[*cut_count], snapped);
                 (*cut_count)++;
             }
         }
@@ -1920,7 +1976,13 @@ static void clip_face_by_plane(struct clip_face *face,
 
             if (*cut_count < CLIP_MAX_CUTS)
             {
-                v_cpy(cuts[*cut_count], p);
+                /* p is the intersection; snap it exactly to the plane. */
+                double dp = p[0]*n[0] + p[1]*n[1] + p[2]*n[2] - d;
+                double snapped[3];
+                snapped[0] = p[0] - dp * n[0];
+                snapped[1] = p[1] - dp * n[1];
+                snapped[2] = p[2] - dp * n[2];
+                v_cpy(cuts[*cut_count], snapped);
                 (*cut_count)++;
             }
         }
@@ -1935,7 +1997,7 @@ static void clip_face_by_plane(struct clip_face *face,
 /*
  * Sort polygon vertices into counter-clockwise order about a normal.
  */
-static void sort_face_ccw(struct clip_face *face, const float n[3])
+static void sort_face_ccw(struct clip_face *face, const double n[3])
 {
     int i, j;
 
@@ -1967,7 +2029,7 @@ static void sort_face_ccw(struct clip_face *face, const float n[3])
  * is formed on the clipping plane from the intersection points.
  */
 static void clip_hull_by_plane(struct clip_hull *hull,
-                               const float n[3], float d, int si)
+                               const double n[3], double d, int si)
 {
     double cuts[CLIP_MAX_CUTS][3];
     int cut_count = 0;
@@ -1989,8 +2051,11 @@ static void clip_hull_by_plane(struct clip_hull *hull,
     {
         struct clip_face *cap = &hull->faces[hull->fc];
 
-        cap->n  = 0;
-        cap->si = si;
+        cap->n        = 0;
+        cap->si       = si;
+        cap->normal[0] = n[0];
+        cap->normal[1] = n[1];
+        cap->normal[2] = n[2];
 
         for (i = 0; i < cut_count; i++)
         {
@@ -2002,7 +2067,7 @@ static void clip_hull_by_plane(struct clip_hull *hull,
 
                 v_sub(r, cuts[i], cap->v[j]);
 
-                if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] < (double) SMALL * SMALL)
+                if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] < (double)SMALL * SMALL)
                 {
                     dup = 1;
                     break;
@@ -2036,6 +2101,7 @@ static void init_hull(struct clip_hull *hull, float S)
     /* +X face */
     f = &hull->faces[hull->fc++];
     f->si = -1; f->n = 4;
+    f->normal[0] = 1.0; f->normal[1] = 0.0; f->normal[2] = 0.0;
     f->v[0][0] =  S; f->v[0][1] = -S; f->v[0][2] = -S;
     f->v[1][0] =  S; f->v[1][1] =  S; f->v[1][2] = -S;
     f->v[2][0] =  S; f->v[2][1] =  S; f->v[2][2] =  S;
@@ -2044,6 +2110,7 @@ static void init_hull(struct clip_hull *hull, float S)
     /* -X face */
     f = &hull->faces[hull->fc++];
     f->si = -1; f->n = 4;
+    f->normal[0] = -1.0; f->normal[1] = 0.0; f->normal[2] = 0.0;
     f->v[0][0] = -S; f->v[0][1] =  S; f->v[0][2] = -S;
     f->v[1][0] = -S; f->v[1][1] = -S; f->v[1][2] = -S;
     f->v[2][0] = -S; f->v[2][1] = -S; f->v[2][2] =  S;
@@ -2052,6 +2119,7 @@ static void init_hull(struct clip_hull *hull, float S)
     /* +Y face */
     f = &hull->faces[hull->fc++];
     f->si = -1; f->n = 4;
+    f->normal[0] = 0.0; f->normal[1] = 1.0; f->normal[2] = 0.0;
     f->v[0][0] =  S; f->v[0][1] =  S; f->v[0][2] = -S;
     f->v[1][0] = -S; f->v[1][1] =  S; f->v[1][2] = -S;
     f->v[2][0] = -S; f->v[2][1] =  S; f->v[2][2] =  S;
@@ -2060,6 +2128,7 @@ static void init_hull(struct clip_hull *hull, float S)
     /* -Y face */
     f = &hull->faces[hull->fc++];
     f->si = -1; f->n = 4;
+    f->normal[0] = 0.0; f->normal[1] = -1.0; f->normal[2] = 0.0;
     f->v[0][0] = -S; f->v[0][1] = -S; f->v[0][2] = -S;
     f->v[1][0] =  S; f->v[1][1] = -S; f->v[1][2] = -S;
     f->v[2][0] =  S; f->v[2][1] = -S; f->v[2][2] =  S;
@@ -2068,6 +2137,7 @@ static void init_hull(struct clip_hull *hull, float S)
     /* +Z face */
     f = &hull->faces[hull->fc++];
     f->si = -1; f->n = 4;
+    f->normal[0] = 0.0; f->normal[1] = 0.0; f->normal[2] = 1.0;
     f->v[0][0] =  S; f->v[0][1] = -S; f->v[0][2] =  S;
     f->v[1][0] =  S; f->v[1][1] =  S; f->v[1][2] =  S;
     f->v[2][0] = -S; f->v[2][1] =  S; f->v[2][2] =  S;
@@ -2076,6 +2146,7 @@ static void init_hull(struct clip_hull *hull, float S)
     /* -Z face */
     f = &hull->faces[hull->fc++];
     f->si = -1; f->n = 4;
+    f->normal[0] = 0.0; f->normal[1] = 0.0; f->normal[2] = -1.0;
     f->v[0][0] =  S; f->v[0][1] =  S; f->v[0][2] = -S;
     f->v[1][0] =  S; f->v[1][1] = -S; f->v[1][2] = -S;
     f->v[2][0] = -S; f->v[2][1] = -S; f->v[2][2] = -S;
@@ -2175,32 +2246,176 @@ static void emit_face_geom(struct mapc_context *ctx,
 }
 
 /*
- * Build the convex hull for a lump by clipping an AABB against each
- * brush plane, then emit verts, edges, and geoms from the result.
+ * Clip a polygon in-place by the half-space n·x <= d + SMALL (inside brush).
+ * Standard Sutherland-Hodgman single-plane clip.
+ */
+static void clip_poly_by_halfspace(struct clip_face *face,
+                                   const double n[3], double d)
+{
+    double tmp[CLIP_MAX_FACE_VERTS][3];
+    double dist[CLIP_MAX_FACE_VERTS];
+    int i, tc = 0;
+
+    if (face->n < 3)
+        return;
+
+    for (i = 0; i < face->n; i++)
+        dist[i] = face->v[i][0]*n[0]
+                + face->v[i][1]*n[1]
+                + face->v[i][2]*n[2] - d;
+
+    for (i = 0; i < face->n; i++)
+    {
+        int j = (i + 1) % face->n;
+
+        if (dist[i] <= SMALL)
+        {
+            if (tc < CLIP_MAX_FACE_VERTS)
+            {
+                tmp[tc][0] = face->v[i][0];
+                tmp[tc][1] = face->v[i][1];
+                tmp[tc][2] = face->v[i][2];
+                tc++;
+            }
+        }
+
+        if ((dist[i] > SMALL && dist[j] < -SMALL) ||
+            (dist[i] < -SMALL && dist[j] > SMALL))
+        {
+            double t = dist[i] / (dist[i] - dist[j]);
+            double p[3];
+
+            p[0] = face->v[i][0] + (face->v[j][0] - face->v[i][0]) * t;
+            p[1] = face->v[i][1] + (face->v[j][1] - face->v[i][1]) * t;
+            p[2] = face->v[i][2] + (face->v[j][2] - face->v[i][2]) * t;
+
+            if (tc < CLIP_MAX_FACE_VERTS)
+            {
+                /* Snap intersection to clipping plane exactly. */
+                double dp = p[0]*n[0] + p[1]*n[1] + p[2]*n[2] - d;
+
+                tmp[tc][0] = p[0] - dp * n[0];
+                tmp[tc][1] = p[1] - dp * n[1];
+                tmp[tc][2] = p[2] - dp * n[2];
+                tc++;
+            }
+        }
+    }
+
+    face->n = tc;
+
+    for (i = 0; i < tc; i++)
+    {
+        face->v[i][0] = tmp[i][0];
+        face->v[i][1] = tmp[i][1];
+        face->v[i][2] = tmp[i][2];
+    }
+}
+
+/*
+ * Build each brush face polygon by starting with a large rectangle on that
+ * face's plane and clipping it against all other brush planes.  This is the
+ * TrenchBroom / standard CSG approach and avoids contamination artifacts from
+ * the incremental hull method.
  */
 static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
 {
     struct s_base *fp = &ctx->file;
-    struct clip_hull hull;
+    struct clip_face faces[CLIP_MAX_FACES];
     int face_vi[CLIP_MAX_FACES][CLIP_MAX_FACE_VERTS];
     int local_verts[4096];
     int local_count = 0;
-    int i, j;
+    int fc = 0;
+    int i, j, k;
 
     /*
-     * Build the convex hull by clipping a large AABB against each brush
-     * plane. The size doesn't affect the final result, just intermediate
-     * work. Using a fixed large box avoids the need to compute a tight
-     * AABB (which itself requires O(n^3) plane-triple intersection).
+     * For each brush plane k, initialise a large rectangle lying exactly on
+     * that plane then clip it by every other brush plane.
      */
-
-    init_hull(&hull, HULL_SIZE);
-
-    for (i = 0; i < lp->sc; i++)
+    for (k = 0; k < lp->sc && fc < CLIP_MAX_FACES; k++)
     {
-        int si = fp->iv[lp->s0 + i];
+        int si_k = fp->iv[lp->s0 + k];
+        const double *nk = ctx->dplane_n[si_k];
+        double dk = ctx->dplane_d[si_k];
+        struct clip_face *f = &faces[fc];
 
-        clip_hull_by_plane(&hull, ctx->plane_n[si], ctx->plane_d[si], si);
+        /* Point on the plane: nk * dk. */
+        double pt[3];
+        pt[0] = nk[0] * dk;
+        pt[1] = nk[1] * dk;
+        pt[2] = nk[2] * dk;
+
+        /* Two tangent vectors spanning the plane. */
+        double t1[3], t2[3];
+        double ax = fabs(nk[0]), ay = fabs(nk[1]), az = fabs(nk[2]);
+        double up[3];
+
+        if (ax <= ay && ax <= az) { up[0]=1; up[1]=0; up[2]=0; }
+        else if (ay <= az)        { up[0]=0; up[1]=1; up[2]=0; }
+        else                      { up[0]=0; up[1]=0; up[2]=1; }
+
+        {
+            double dot = up[0]*nk[0] + up[1]*nk[1] + up[2]*nk[2];
+            double len;
+
+            t1[0] = up[0] - dot*nk[0];
+            t1[1] = up[1] - dot*nk[1];
+            t1[2] = up[2] - dot*nk[2];
+
+            len = sqrt(t1[0]*t1[0] + t1[1]*t1[1] + t1[2]*t1[2]);
+
+            if (len > 0.0) { t1[0] /= len; t1[1] /= len; t1[2] /= len; }
+        }
+
+        /* t2 = nk × t1 */
+        t2[0] = nk[1]*t1[2] - nk[2]*t1[1];
+        t2[1] = nk[2]*t1[0] - nk[0]*t1[2];
+        t2[2] = nk[0]*t1[1] - nk[1]*t1[0];
+
+        {
+            double S = HULL_SIZE;
+
+            f->si = si_k;
+            f->n  = 4;
+            f->normal[0] = nk[0];
+            f->normal[1] = nk[1];
+            f->normal[2] = nk[2];
+
+            /* CCW winding when viewed from outside (along -nk). */
+            f->v[0][0] = pt[0] + S*t1[0] + S*t2[0];
+            f->v[0][1] = pt[1] + S*t1[1] + S*t2[1];
+            f->v[0][2] = pt[2] + S*t1[2] + S*t2[2];
+
+            f->v[1][0] = pt[0] - S*t1[0] + S*t2[0];
+            f->v[1][1] = pt[1] - S*t1[1] + S*t2[1];
+            f->v[1][2] = pt[2] - S*t1[2] + S*t2[2];
+
+            f->v[2][0] = pt[0] - S*t1[0] - S*t2[0];
+            f->v[2][1] = pt[1] - S*t1[1] - S*t2[1];
+            f->v[2][2] = pt[2] - S*t1[2] - S*t2[2];
+
+            f->v[3][0] = pt[0] + S*t1[0] - S*t2[0];
+            f->v[3][1] = pt[1] + S*t1[1] - S*t2[1];
+            f->v[3][2] = pt[2] + S*t1[2] - S*t2[2];
+        }
+
+        /* Clip by all other brush planes. */
+        for (j = 0; j < lp->sc; j++)
+        {
+            if (j == k) continue;
+
+            {
+                int si_j = fp->iv[lp->s0 + j];
+
+                clip_poly_by_halfspace(f, ctx->dplane_n[si_j],
+                                       ctx->dplane_d[si_j]);
+            }
+
+            if (f->n < 3) break;
+        }
+
+        if (f->n >= 3)
+            fc++;
     }
 
     /* Emit vertices. */
@@ -2208,39 +2423,34 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
     lp->v0 = fp->ic;
     lp->vc = 0;
 
-    for (i = 0; i < hull.fc; i++)
-        if (hull.faces[i].si >= 0)
-            for (j = 0; j < hull.faces[i].n; j++)
-            {
-                float p[3];
+    for (i = 0; i < fc; i++)
+        for (j = 0; j < faces[i].n; j++)
+        {
+            float p[3];
 
-                p[0] = (float) hull.faces[i].v[j][0];
-                p[1] = (float) hull.faces[i].v[j][1];
-                p[2] = (float) hull.faces[i].v[j][2];
+            p[0] = (float) faces[i].v[j][0];
+            p[1] = (float) faces[i].v[j][1];
+            p[2] = (float) faces[i].v[j][2];
 
-                face_vi[i][j] = find_or_add_vert(ctx, lp, p,
-                                                 local_verts, &local_count);
-            }
+            face_vi[i][j] = find_or_add_vert(ctx, lp, p,
+                                             local_verts, &local_count);
+        }
 
     /* Emit edges. */
 
     lp->e0 = fp->ic;
     lp->ec = 0;
 
-    for (i = 0; i < hull.fc; i++)
-    {
-        if (hull.faces[i].si < 0)
-            continue;
-
-        for (j = 0; j < hull.faces[i].n; j++)
+    for (i = 0; i < fc; i++)
+        for (j = 0; j < faces[i].n; j++)
         {
             int va = face_vi[i][j];
-            int vb = face_vi[i][(j + 1) % hull.faces[i].n];
-            int k, dup = 0;
+            int vb = face_vi[i][(j + 1) % faces[i].n];
+            int m, dup = 0;
 
-            for (k = 0; k < lp->ec; k++)
+            for (m = 0; m < lp->ec; m++)
             {
-                int ei = fp->iv[lp->e0 + k];
+                int ei = fp->iv[lp->e0 + m];
 
                 if ((fp->ev[ei].vi == va && fp->ev[ei].vj == vb) ||
                     (fp->ev[ei].vi == vb && fp->ev[ei].vj == va))
@@ -2262,17 +2472,15 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
                 lp->ec++;
             }
         }
-    }
 
     /* Emit geoms. */
 
     lp->g0 = fp->ic;
     lp->gc = 0;
 
-    for (i = 0; i < hull.fc; i++)
-        if (hull.faces[i].si >= 0 &&
-            fp->mv[ctx->plane_m[hull.faces[i].si]].d[3] > 0.0f)
-            emit_face_geom(ctx, lp, &hull.faces[i], face_vi[i]);
+    for (i = 0; i < fc; i++)
+        if (fp->mv[ctx->plane_m[faces[i].si]].d[3] > 0.0f)
+            emit_face_geom(ctx, lp, &faces[i], face_vi[i]);
 
     /* Check detail flag. */
 
@@ -3452,19 +3660,28 @@ static void export_obj(struct mapc_context *ctx, const char *path)
         fprintf(fout, "vt %.9g %.9g\n",
                 fp->tv[i].u[0], fp->tv[i].u[1]);
 
-    for (i = 0; i < fp->gc; i++)
+    for (i = 0; i < fp->lc; i++)
     {
-        struct b_geom *gp = fp->gv + i;
-        struct b_offs *oi = fp->ov + gp->oi;
-        struct b_offs *oj = fp->ov + gp->oj;
-        struct b_offs *ok = fp->ov + gp->ok;
+        struct b_lump *lp = fp->lv + i;
+        int k;
 
-        /* OBJ indices are 1-based. */
+        fprintf(fout, "o entity0_brush%d\n", i);
 
-        fprintf(fout, "f %d/%d/%d %d/%d/%d %d/%d/%d\n",
-                oi->vi + 1, oi->ti + 1, oi->si + 1,
-                oj->vi + 1, oj->ti + 1, oj->si + 1,
-                ok->vi + 1, ok->ti + 1, ok->si + 1);
+        for (k = 0; k < lp->gc; k++)
+        {
+            int gi = fp->iv[lp->g0 + k];
+            struct b_geom *gp = fp->gv + gi;
+            struct b_offs *oi = fp->ov + gp->oi;
+            struct b_offs *oj = fp->ov + gp->oj;
+            struct b_offs *ok = fp->ov + gp->ok;
+
+            /* OBJ indices are 1-based. */
+
+            fprintf(fout, "f %d/%d/%d %d/%d/%d %d/%d/%d\n",
+                    oi->vi + 1, oi->ti + 1, oi->si + 1,
+                    oj->vi + 1, oj->ti + 1, oj->si + 1,
+                    ok->vi + 1, ok->ti + 1, ok->si + 1);
+        }
     }
 
     fclose(fout);
@@ -3505,7 +3722,7 @@ static void mapc_compile_internal(struct mapc_context *ctx)
         clip_file(ctx);
         move_file(ctx);
 
-        uniq_file(ctx);
+        /* uniq_file(ctx); */
 
         if (ctx->opt_obj)
             export_obj(ctx, ctx->opt_obj);
