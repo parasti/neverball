@@ -1845,288 +1845,23 @@ static void read_map(struct mapc_context *ctx, fs_file fin)
 /*---------------------------------------------------------------------------*/
 
 /*
- * Per-face polygon clipping (TrenchBroom-style).
+ * Brush face geometry via polygon clipping.
  *
- * For each brush face, start with a large polygon on that plane and clip it
- * by all other brush planes.  This avoids hull-order-dependent contamination
- * from nearly-coplanar planes.
- *
- * The polyhedron hull functions below are still present but unused.
+ * For each face of a convex brush, its visible polygon is computed by
+ * starting with a large rectangle that lies on that face's plane and
+ * clipping it against the inward half-spaces of all the other brush
+ * faces.  Each face is computed independently, so there is no
+ * accumulated floating-point drift between faces.
  */
 
 #define CLIP_MAX_FACE_VERTS 256
 #define CLIP_MAX_FACES      256
-#define CLIP_MAX_CUTS       (CLIP_MAX_FACES * 2)
 
 struct clip_face {
     double v[CLIP_MAX_FACE_VERTS][3];
-    double normal[3];  /* outward-facing plane normal of this face */
     int    n;
-    int    si;  /* side index, or -1 for initial AABB faces */
+    int    si;  /* side index */
 };
-
-struct clip_hull {
-    struct clip_face faces[CLIP_MAX_FACES];
-    int fc;
-};
-
-/*
- * Clip a convex polygon against a half-space, keeping the back side
- * (where dot(p, n) - d <= 0).  Intersection points are appended to cuts[].
- */
-static void clip_face_by_plane(struct clip_face *face,
-                               const double n[3], double d,
-                               double cuts[][3], int *cut_count)
-{
-    /* If this face's plane is nearly parallel to the cutting plane,
-     * its vertices near the cutting plane are contamination artifacts
-     * (they were snapped to the face's own plane, not to the cutting
-     * plane).  Skip their on-plane contribution to avoid inflating the
-     * cap polygon.  Edge-crossing intersections are still collected
-     * because they land exactly on the cutting plane.
-     *
-     * Threshold: cos(~0.1 deg) ≈ 0.99999.  Brushes with nearly-parallel
-     * faces (which would be degenerate slabs) are the only case where
-     * the dot product is this high.
-     */
-    double ndot = fabs(face->normal[0] * n[0] +
-                       face->normal[1] * n[1] +
-                       face->normal[2] * n[2]);
-    int parallel = ndot > 1.0 - 1e-5;
-    double tmp[CLIP_MAX_FACE_VERTS][3];
-    double dist[CLIP_MAX_FACE_VERTS];
-    int i, tc = 0;
-
-    if (face->n < 3)
-        return;
-
-    for (i = 0; i < face->n; i++)
-        dist[i] = face->v[i][0] * n[0]
-                + face->v[i][1] * n[1]
-                + face->v[i][2] * n[2] - d;
-
-    for (i = 0; i < face->n; i++)
-    {
-        int j = (i + 1) % face->n;
-
-        if (dist[i] <= SMALL)
-        {
-            if (tc < CLIP_MAX_FACE_VERTS)
-            {
-                v_cpy(tmp[tc], face->v[i]);
-                tc++;
-            }
-
-            /* On-plane vertices are also cap boundary points, unless
-             * this face's plane is nearly parallel to the cutting plane
-             * (those vertices are contamination, not true intersections). */
-            if (!parallel
-                && dist[i] >= -SMALL && dist[i] <= SMALL
-                && *cut_count < CLIP_MAX_CUTS)
-            {
-                double snapped[3];
-                snapped[0] = face->v[i][0] - dist[i] * n[0];
-                snapped[1] = face->v[i][1] - dist[i] * n[1];
-                snapped[2] = face->v[i][2] - dist[i] * n[2];
-                v_cpy(cuts[*cut_count], snapped);
-                (*cut_count)++;
-            }
-        }
-
-        if ((dist[i] > SMALL && dist[j] < -SMALL) ||
-            (dist[i] < -SMALL && dist[j] > SMALL))
-        {
-            double t = dist[i] / (dist[i] - dist[j]);
-            double p[3];
-
-            p[0] = face->v[i][0] + (face->v[j][0] - face->v[i][0]) * t;
-            p[1] = face->v[i][1] + (face->v[j][1] - face->v[i][1]) * t;
-            p[2] = face->v[i][2] + (face->v[j][2] - face->v[i][2]) * t;
-
-            if (tc < CLIP_MAX_FACE_VERTS)
-            {
-                v_cpy(tmp[tc], p);
-                tc++;
-            }
-
-            if (*cut_count < CLIP_MAX_CUTS)
-            {
-                /* p is the intersection; snap it exactly to the plane. */
-                double dp = p[0]*n[0] + p[1]*n[1] + p[2]*n[2] - d;
-                double snapped[3];
-                snapped[0] = p[0] - dp * n[0];
-                snapped[1] = p[1] - dp * n[1];
-                snapped[2] = p[2] - dp * n[2];
-                v_cpy(cuts[*cut_count], snapped);
-                (*cut_count)++;
-            }
-        }
-    }
-
-    face->n = tc;
-
-    for (i = 0; i < tc; i++)
-        v_cpy(face->v[i], tmp[i]);
-}
-
-/*
- * Sort polygon vertices into counter-clockwise order about a normal.
- */
-static void sort_face_ccw(struct clip_face *face, const double n[3])
-{
-    int i, j;
-
-    for (i = 1; i < face->n; i++)
-        for (j = i + 1; j < face->n; j++)
-        {
-            double u[3], v[3], w[3];
-
-            v_sub(u, face->v[i], face->v[0]);
-            v_sub(v, face->v[j], face->v[0]);
-
-            w[0] = u[1] * v[2] - u[2] * v[1];
-            w[1] = u[2] * v[0] - u[0] * v[2];
-            w[2] = u[0] * v[1] - u[1] * v[0];
-
-            if (w[0] * n[0] + w[1] * n[1] + w[2] * n[2] < 0.0)
-            {
-                double t[3];
-
-                v_cpy(t,          face->v[i]);
-                v_cpy(face->v[i], face->v[j]);
-                v_cpy(face->v[j], t);
-            }
-        }
-}
-
-/*
- * Clip the hull by a plane, keeping the back half.  A new cap polygon
- * is formed on the clipping plane from the intersection points.
- */
-static void clip_hull_by_plane(struct clip_hull *hull,
-                               const double n[3], double d, int si)
-{
-    double cuts[CLIP_MAX_CUTS][3];
-    int cut_count = 0;
-    int i, j;
-
-    for (i = 0; i < hull->fc; i++)
-    {
-        clip_face_by_plane(&hull->faces[i], n, d, cuts, &cut_count);
-
-        if (hull->faces[i].n < 3)
-        {
-            hull->faces[i] = hull->faces[hull->fc - 1];
-            hull->fc--;
-            i--;
-        }
-    }
-
-    if (cut_count >= 3 && hull->fc < CLIP_MAX_FACES)
-    {
-        struct clip_face *cap = &hull->faces[hull->fc];
-
-        cap->n        = 0;
-        cap->si       = si;
-        cap->normal[0] = n[0];
-        cap->normal[1] = n[1];
-        cap->normal[2] = n[2];
-
-        for (i = 0; i < cut_count; i++)
-        {
-            int dup = 0;
-
-            for (j = 0; j < cap->n; j++)
-            {
-                double r[3];
-
-                v_sub(r, cuts[i], cap->v[j]);
-
-                if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] < (double)SMALL * SMALL)
-                {
-                    dup = 1;
-                    break;
-                }
-            }
-
-            if (!dup && cap->n < CLIP_MAX_FACE_VERTS)
-            {
-                v_cpy(cap->v[cap->n], cuts[i]);
-                cap->n++;
-            }
-        }
-
-        if (cap->n >= 3)
-        {
-            sort_face_ccw(cap, n);
-            hull->fc++;
-        }
-    }
-}
-
-/*
- * Initialize a hull as an axis-aligned bounding box.
- */
-static void init_hull(struct clip_hull *hull, float S)
-{
-    struct clip_face *f;
-
-    hull->fc = 0;
-
-    /* +X face */
-    f = &hull->faces[hull->fc++];
-    f->si = -1; f->n = 4;
-    f->normal[0] = 1.0; f->normal[1] = 0.0; f->normal[2] = 0.0;
-    f->v[0][0] =  S; f->v[0][1] = -S; f->v[0][2] = -S;
-    f->v[1][0] =  S; f->v[1][1] =  S; f->v[1][2] = -S;
-    f->v[2][0] =  S; f->v[2][1] =  S; f->v[2][2] =  S;
-    f->v[3][0] =  S; f->v[3][1] = -S; f->v[3][2] =  S;
-
-    /* -X face */
-    f = &hull->faces[hull->fc++];
-    f->si = -1; f->n = 4;
-    f->normal[0] = -1.0; f->normal[1] = 0.0; f->normal[2] = 0.0;
-    f->v[0][0] = -S; f->v[0][1] =  S; f->v[0][2] = -S;
-    f->v[1][0] = -S; f->v[1][1] = -S; f->v[1][2] = -S;
-    f->v[2][0] = -S; f->v[2][1] = -S; f->v[2][2] =  S;
-    f->v[3][0] = -S; f->v[3][1] =  S; f->v[3][2] =  S;
-
-    /* +Y face */
-    f = &hull->faces[hull->fc++];
-    f->si = -1; f->n = 4;
-    f->normal[0] = 0.0; f->normal[1] = 1.0; f->normal[2] = 0.0;
-    f->v[0][0] =  S; f->v[0][1] =  S; f->v[0][2] = -S;
-    f->v[1][0] = -S; f->v[1][1] =  S; f->v[1][2] = -S;
-    f->v[2][0] = -S; f->v[2][1] =  S; f->v[2][2] =  S;
-    f->v[3][0] =  S; f->v[3][1] =  S; f->v[3][2] =  S;
-
-    /* -Y face */
-    f = &hull->faces[hull->fc++];
-    f->si = -1; f->n = 4;
-    f->normal[0] = 0.0; f->normal[1] = -1.0; f->normal[2] = 0.0;
-    f->v[0][0] = -S; f->v[0][1] = -S; f->v[0][2] = -S;
-    f->v[1][0] =  S; f->v[1][1] = -S; f->v[1][2] = -S;
-    f->v[2][0] =  S; f->v[2][1] = -S; f->v[2][2] =  S;
-    f->v[3][0] = -S; f->v[3][1] = -S; f->v[3][2] =  S;
-
-    /* +Z face */
-    f = &hull->faces[hull->fc++];
-    f->si = -1; f->n = 4;
-    f->normal[0] = 0.0; f->normal[1] = 0.0; f->normal[2] = 1.0;
-    f->v[0][0] =  S; f->v[0][1] = -S; f->v[0][2] =  S;
-    f->v[1][0] =  S; f->v[1][1] =  S; f->v[1][2] =  S;
-    f->v[2][0] = -S; f->v[2][1] =  S; f->v[2][2] =  S;
-    f->v[3][0] = -S; f->v[3][1] = -S; f->v[3][2] =  S;
-
-    /* -Z face */
-    f = &hull->faces[hull->fc++];
-    f->si = -1; f->n = 4;
-    f->normal[0] = 0.0; f->normal[1] = 0.0; f->normal[2] = -1.0;
-    f->v[0][0] =  S; f->v[0][1] =  S; f->v[0][2] = -S;
-    f->v[1][0] =  S; f->v[1][1] = -S; f->v[1][2] = -S;
-    f->v[2][0] = -S; f->v[2][1] = -S; f->v[2][2] = -S;
-    f->v[3][0] = -S; f->v[3][1] =  S; f->v[3][2] = -S;
-}
 
 /*
  * Find a matching vertex in the lump or create a new one.
@@ -2221,8 +1956,9 @@ static void emit_face_geom(struct mapc_context *ctx,
 }
 
 /*
- * Clip a polygon in-place by the half-space n·x <= d + SMALL (inside brush).
- * Standard Sutherland-Hodgman single-plane clip.
+ * Clip a polygon in-place by the half-space n·x <= d, keeping the inside.
+ * Vertices within SMALL of the boundary are kept; edge crossings are
+ * snapped exactly onto the cutting plane to avoid drift.
  */
 static void clip_poly_by_halfspace(struct clip_face *face,
                                    const double n[3], double d)
@@ -2288,10 +2024,12 @@ static void clip_poly_by_halfspace(struct clip_face *face,
 }
 
 /*
- * Build each brush face polygon by starting with a large rectangle on that
- * face's plane and clipping it against all other brush planes.  This is the
- * TrenchBroom / standard CSG approach and avoids contamination artifacts from
- * the incremental hull method.
+ * Build the geometry for each face of a brush lump.
+ *
+ * For each brush side, initialise a large polygon on its plane and clip it
+ * against the inward half-spaces of all the other sides.  The result is the
+ * visible polygon for that face.  Vertices, edges, and triangle fans are
+ * emitted into the SOL arrays.
  */
 static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
 {
@@ -2304,8 +2042,8 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
     int i, j, k;
 
     /*
-     * For each brush plane k, initialise a large rectangle lying exactly on
-     * that plane then clip it by every other brush plane.
+     * For each brush side k: build a large starting rectangle on its plane,
+     * then clip it by every other side's inward half-space.
      */
     for (k = 0; k < lp->sc && fc < CLIP_MAX_FACES; k++)
     {
@@ -2352,9 +2090,6 @@ static void clip_lump(struct mapc_context *ctx, struct b_lump *lp)
 
             f->si = si_k;
             f->n  = 4;
-            f->normal[0] = nk[0];
-            f->normal[1] = nk[1];
-            f->normal[2] = nk[2];
 
             /* CCW winding when viewed from outside (along -nk). */
             f->v[0][0] = pt[0] + S*t1[0] + S*t2[0];
