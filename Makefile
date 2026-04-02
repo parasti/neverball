@@ -262,7 +262,6 @@ X := .exe
 endif
 
 MAPC_TARG := mapc$(X)
-DUMP_TARG := soldump$(X)
 BALL_TARG := neverball$(X)
 PUTT_TARG := neverputt$(X)
 
@@ -290,20 +289,6 @@ MAPC_OBJS := \
 	share/list.o        \
 	share/mapclib.o     \
 	share/mapc.o
-DUMP_OBJS := \
-	share/solid_base.o  \
-	share/binary.o      \
-	share/log.o         \
-	share/base_config.o \
-	share/common.o      \
-	share/fs_common.o   \
-	share/fs_png.o      \
-	share/fs_jpg.o      \
-	share/base_image.o  \
-	share/dir.o         \
-	share/array.o       \
-	share/list.o        \
-	share/soldump.o
 BALL_OBJS := \
 	share/lang.o        \
 	share/st_common.o   \
@@ -433,7 +418,6 @@ ifeq ($(ENABLE_FS),stdio)
 BALL_OBJS += share/fs_stdio.o share/zip.o
 PUTT_OBJS += share/fs_stdio.o share/zip.o
 MAPC_OBJS += share/fs_stdio.o share/zip.o
-DUMP_OBJS += share/fs_stdio.o share/zip.o
 endif
 
 ifeq ($(ENABLE_TILT),wii)
@@ -482,7 +466,6 @@ BALL_OBJS += $(FETCH_OBJS)
 BALL_DEPS := $(BALL_OBJS:.o=.d)
 PUTT_DEPS := $(PUTT_OBJS:.o=.d)
 MAPC_DEPS := $(MAPC_OBJS:.o=.d)
-DUMP_DEPS := $(DUMP_OBJS:.o=.d)
 
 MAPS := $(shell find data -name "*.map" \! -name "*.autosave.map")
 SOLS := $(MAPS:%.map=%.sol)
@@ -535,9 +518,6 @@ $(PUTT_TARG) : $(PUTT_OBJS)
 $(MAPC_TARG) : $(MAPC_OBJS)
 	$(CC) $(ALL_CFLAGS) -o $(MAPC_TARG) $(MAPC_OBJS) $(LDFLAGS) $(MAPC_LIBS)
 
-$(DUMP_TARG) : $(DUMP_OBJS)
-	$(CC) $(ALL_CFLAGS) -o $(DUMP_TARG) $(DUMP_OBJS) $(LDFLAGS) $(MAPC_LIBS)
-
 # Work around some extremely helpful sdl-config scripts.
 
 ifeq ($(PLATFORM),mingw)
@@ -554,7 +534,7 @@ endif
 desktops : $(DESKTOPS)
 
 clean-src :
-	$(RM) $(BALL_TARG) $(PUTT_TARG) $(MAPC_TARG) $(DUMP_TARG)
+	$(RM) $(BALL_TARG) $(PUTT_TARG) $(MAPC_TARG)
 	find ball share putt \( -name '*.o' -o -name '*.d' \) -delete
 	$(RM) neverball.ico.o neverputt.ico.o
 
@@ -567,6 +547,6 @@ clean : clean-src
 
 .PHONY : all sols locales desktops clean-src clean
 
--include $(BALL_DEPS) $(PUTT_DEPS) $(MAPC_DEPS) $(DUMP_DEPS)
+-include $(BALL_DEPS) $(PUTT_DEPS) $(MAPC_DEPS)
 
 #------------------------------------------------------------------------------
