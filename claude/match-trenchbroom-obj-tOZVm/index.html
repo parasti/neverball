@@ -555,7 +555,6 @@ General Public License for more details.
 
           <div class="flex gap-2 items-center mb-4">
             <button id="run-button" type="button" class="neverball-button" disabled autocomplete="off">Play Now</button>
-            <button id="test-button" type="button" class="neverball-button" disabled autocomplete="off" onclick="Neverball.arguments = ['--cheat', '--level', 'map-easy/invisible_face2.sol']; document.getElementById('run-button').click();">Test Map</button>
             <div id="status" class="text-white"></div>
           </div>
 
@@ -633,7 +632,7 @@ General Public License for more details.
 
       isRunning: false,
       pauseOnPointerRelease: true,
-      arguments: ['--cheat'],
+      arguments: [],
 
       _canvas: document.getElementById('canvas'),
       _runButton: document.getElementById('run-button'),
@@ -1054,7 +1053,7 @@ General Public License for more details.
         }
 
         this._runButton.textContent = 'Play Now';
-        this.arguments = ['--cheat'];
+        this.arguments = [];
       },
 
       downloadFile: function (path) {
