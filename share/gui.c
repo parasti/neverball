@@ -2496,15 +2496,17 @@ static int gui_horz_overlap(int id, int jd)
  * one.
  */
 
-/* FIXME This isn't how you factor out reusable code. */
+static inline int gui_check_horizontal(int d, int dmin, int o, int omin)
+{
+    return (o > 0 && (omin > 0 ? d <= dmin : 1));
+}
 
-#define CHECK_HORIZONTAL \
-    (o > 0 && (omin > 0 ? d <= dmin : 1))
-
-#define CHECK_VERTICAL                                                  \
-    (omin > 0 ?                                                         \
-     d < dmin :                                                         \
-     (o > 0 ? d <= dmin : (d < dmin || (d == dmin && o > omin))))
+static inline int gui_check_vertical(int d, int dmin, int o, int omin)
+{
+    return (omin > 0 ?
+            d < dmin :
+            (o > 0 ? d <= dmin : (d < dmin || (d == dmin && o > omin))));
+}
 
 static int gui_stick_L(int id, int dd)
 {
@@ -2529,7 +2531,7 @@ static int gui_stick_L(int id, int dd)
             d = gui_horz_offset(dd, kd);
             o = gui_vert_overlap(dd, kd);
 
-            if (d >= 0 && CHECK_HORIZONTAL)
+            if (d >= 0 && gui_check_horizontal(d, dmin, o, omin))
             {
                 hd = kd;
                 dmin = d;
@@ -2564,7 +2566,7 @@ static int gui_stick_R(int id, int dd)
             d = gui_horz_offset(kd, dd);
             o = gui_vert_overlap(dd, kd);
 
-            if (d >= 0 && CHECK_HORIZONTAL)
+            if (d >= 0 && gui_check_horizontal(d, dmin, o, omin))
             {
                 hd = kd;
                 dmin = d;
@@ -2599,7 +2601,7 @@ static int gui_stick_D(int id, int dd)
             d = gui_vert_offset(dd, kd);
             o = gui_horz_overlap(dd, kd);
 
-            if (d >= 0 && CHECK_VERTICAL)
+            if (d >= 0 && gui_check_vertical(d, dmin, o, omin))
             {
                 hd = kd;
                 dmin = d;
@@ -2634,7 +2636,7 @@ static int gui_stick_U(int id, int dd)
             d = gui_vert_offset(kd, dd);
             o = gui_horz_overlap(dd, kd);
 
-            if (d >= 0 && CHECK_VERTICAL)
+            if (d >= 0 && gui_check_vertical(d, dmin, o, omin))
             {
                 hd = kd;
                 dmin = d;
