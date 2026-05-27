@@ -170,12 +170,12 @@ goal {
     playMap: function() {
       let mapText = this.generateMapContent();
       if (!Neverball._module) {
-          if(document.getElementById("run-button") && !document.getElementById("run-button").disabled) { Neverball.run(); setTimeout(() => Editor.playMap(), 1000); } else { alert("Engine not loaded yet. Please wait for initialization."); }
+          alert("Engine not loaded yet. Please click 'Play Now' and wait for the game to start before testing maps.");
           return;
       }
 
       // We will define this export in C
-      if (!document.documentElement.classList.contains("in-game")) { document.getElementById("run-button").click(); setTimeout(() => Neverball._module.ccall("emscripten_play_test_map", null, ["string"], [mapText]), 500); } else { Neverball._module.ccall("emscripten_play_test_map", null, ["string"], [mapText]); }
+      if (!document.documentElement.classList.contains("in-game")) { alert("Please click 'Play Now' and wait for the game to start before testing maps."); return; } Neverball._module.ccall("emscripten_play_test_map", null, ["string"], [mapText]);
     }
   };
 
