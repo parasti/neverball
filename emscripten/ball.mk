@@ -28,11 +28,12 @@ EM_PRELOAD := --preload-file $(DATA_ZIP)@/data/base-neverball.zip
 
 LDFLAGS := $(GL4ES_DIR)/lib/libGL.a
 EM_LDFLAGS := \
+	-s EXPORTED_RUNTIME_METHODS=ccall \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s FULL_ES2=1 \
 	-s INVOKE_RUN=0 \
 	-s NO_EXIT_RUNTIME=1 \
-	-s EXPORTED_FUNCTIONS=_main,_push_user_event,_config_set \
+	-s EXPORTED_FUNCTIONS=_main,_push_user_event,_config_set,_emscripten_play_test_map \
 	-s EXPORTED_RUNTIME_METHODS=callMain,ccall,cwrap,FS,IDBFS \
 	-s HTML5_SUPPORT_DEFERRING_USER_SENSITIVE_REQUESTS=0 \
 	-s LLD_REPORT_UNDEFINED \
@@ -57,6 +58,7 @@ BALL_SRCS := \
 	ball/hud.c \
 	ball/level.c \
 	ball/main.c \
+	ball/editor_bridge.c \
 	ball/progress.c \
 	ball/score.c \
 	ball/set.c \

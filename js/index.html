@@ -555,6 +555,7 @@ General Public License for more details.
 
           <div class="flex gap-2 items-center mb-4">
             <button id="run-button" type="button" class="neverball-button" disabled autocomplete="off">Play Now</button>
+            <button id="toggle-editor-btn" type="button" class="neverball-button" onclick="document.getElementById('editor-box').style.display = document.getElementById('editor-box').style.display === 'none' ? 'block' : 'none'; if(document.getElementById('editor-box').style.display === 'block') Editor.draw();" autocomplete="off">Level Editor</button>
             <div id="status" class="text-white"></div>
           </div>
 
@@ -590,6 +591,25 @@ General Public License for more details.
       <p>
         On a 📱 touchscreen, swipe to tilt the floor. While tilting, use your other 👍 thumb to move the camera.
       </p>
+    </div>
+
+        <div class="neverball-box in-game:hidden mt-4" id="editor-box" style="display: none;">
+      <h2><span class="neverball-text">Level Editor</span></h2>
+      <p>Tap the grid to place blocks, coins, the player, and the goal.</p>
+
+      <div class="flex gap-2 mb-2">
+        <button id="editor-tool-floor" class="neverball-button" onclick="Editor.setTool('floor')">Floor</button>
+        <button id="editor-tool-player" class="neverball-button" onclick="Editor.setTool('player')">Player</button>
+        <button id="editor-tool-goal" class="neverball-button" onclick="Editor.setTool('goal')">Goal</button>
+        <button id="editor-tool-coin" class="neverball-button" onclick="Editor.setTool('coin')">Coin</button>
+        <button id="editor-tool-erase" class="neverball-button" onclick="Editor.setTool('erase')">Erase</button>
+      </div>
+
+      <canvas id="editor-canvas" width="300" height="300" style="background: #222; border: 2px solid #555; touch-action: none; cursor: crosshair; display: block; margin-bottom: 10px;"></canvas>
+
+      <div class="mt-2">
+        <button id="editor-play" class="neverball-button" onclick="Editor.playMap()">Play Test Map</button>
+      </div>
     </div>
 
     <div class="neverball-box no-js:hidden in-game:hidden" id="replay-list-box">
@@ -1440,6 +1460,7 @@ General Public License for more details.
   </script>
 
   <script async src="neverball.js" onload="Neverball.prepareLauncher();"></script>
+  <script src="editor.js"></script>
 </body>
 
 </html>
