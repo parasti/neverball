@@ -41,7 +41,7 @@ void emscripten_play_test_map(const char *map_data)
     log_printf("EDITOR_BRIDGE: Wrote /test.map to MemFS\n");
 
     // Initialize mapc context
-    if (mapc_init(&ctx) != 0)
+    if (!mapc_init(&ctx))
     {
         log_printf("EDITOR_BRIDGE: Error: Could not init mapc context\n");
         return;
