@@ -175,7 +175,7 @@ goal {
       }
 
       // We will define this export in C
-      if (!document.body.classList.contains("in-game") || !Neverball.isRunning) { alert("Please click 'Play Now' and wait for the game to start before testing maps."); return; } Neverball._module.ccall("emscripten_play_test_map", null, ["string"], [mapText]);
+      if (!document.body.classList.contains("in-game") || !Neverball.isRunning) { alert("Please click 'Play Now' and wait for the game to start before testing maps."); return; } console.log("Calling emscripten_play_test_map with mapText:", mapText); Neverball._module.ccall("emscripten_play_test_map", null, ["string"], [mapText]); console.log("emscripten_play_test_map call finished");
     }
   };
 
