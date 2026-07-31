@@ -389,8 +389,7 @@ int mapc_init(struct mapc_context **ctx_ptr)
 #endif
 
     ctx->symc = 0;
-    make_sym(ctx, SYM_PATH, "pendulum", PATH_PENDULUM);
-    make_sym(ctx, SYM_PATH, "ball_pendulum", PATH_PENDULUM);
+    make_sym(ctx, SYM_PATH, "_nb_pendulum", PATH_PENDULUM);
     ctx->refc = 0;
     ctx->targ_n = 0;
     ctx->imagedata = NULL;
