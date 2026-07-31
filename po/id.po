@@ -1,7 +1,7 @@
 # SOME DESCRIPTIVE TITLE.
 # Copyright (C) YEAR Robert Kooima
 # This file is distributed under the same license as the PACKAGE package.
-# 
+#
 # Translators:
 # PennySchloss <ersohn.styne@gmail.com>, 2019
 # Ramdan i <iramdan461@gmail.com>, 2017

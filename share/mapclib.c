@@ -207,6 +207,8 @@ struct mapc_context
     double compile_time;
 };
 
+static void make_sym(struct mapc_context *ctx, int type, const char *name, int val);
+
 /*---------------------------------------------------------------------------*/
 
 #if ENABLE_RADIANT_CONSOLE
@@ -387,6 +389,7 @@ int mapc_init(struct mapc_context **ctx_ptr)
 #endif
 
     ctx->symc = 0;
+    make_sym(ctx, SYM_PATH, "_nb_pendulum", PATH_PENDULUM);
     ctx->refc = 0;
     ctx->targ_n = 0;
     ctx->imagedata = NULL;

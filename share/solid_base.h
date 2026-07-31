@@ -120,6 +120,8 @@
 #define P_ORIENTED 1
 #define P_PARENTED 2
 
+#define PATH_PENDULUM -2
+
 /*---------------------------------------------------------------------------*/
 
 struct b_mtrl

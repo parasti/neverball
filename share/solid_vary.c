@@ -32,7 +32,11 @@ static void setup_mover(struct alloc *alloc, const struct s_vary *fp, int pi, in
         *mi = -1;
 
     if (pi < 0)
+    {
+        if (pi == PATH_PENDULUM && mi)
+            *mi = PATH_PENDULUM;
         return;
+    }
 
     for (i = 0; i < fp->mc; ++i)
     {
@@ -275,7 +279,8 @@ int is_move_dirty(const struct s_vary *vary, int mi)
 
 void set_move_dirty(const struct s_vary *vary, int mi, unsigned int dirty)
 {
-    vary->mv[mi].dirty = !!dirty;
+    if (mi >= 0 && mi < vary->mc)
+        vary->mv[mi].dirty = !!dirty;
 }
 
 /*---------------------------------------------------------------------------*/

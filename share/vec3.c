@@ -383,4 +383,45 @@ void q_slerp(float q[4], const float a[4], const float b[4], float t)
     q_nrm(q, q);
 }
 
+void q_by_basis(float q[4],
+                const float e0[3],
+                const float e1[3],
+                const float e2[3])
+{
+    float t = e0[0] + e1[1] + e2[2];
+    if (t > 0.0f)
+    {
+        float s = fsqrtf(t + 1.0f) * 2.0f;
+        q[0] = 0.25f * s;
+        q[1] = (e1[2] - e2[1]) / s;
+        q[2] = (e2[0] - e0[2]) / s;
+        q[3] = (e0[1] - e1[0]) / s;
+    }
+    else if ((e0[0] > e1[1]) && (e0[0] > e2[2]))
+    {
+        float s = fsqrtf(1.0f + e0[0] - e1[1] - e2[2]) * 2.0f;
+        q[0] = (e1[2] - e2[1]) / s;
+        q[1] = 0.25f * s;
+        q[2] = (e0[1] + e1[0]) / s;
+        q[3] = (e2[0] + e0[2]) / s;
+    }
+    else if (e1[1] > e2[2])
+    {
+        float s = fsqrtf(1.0f + e1[1] - e0[0] - e2[2]) * 2.0f;
+        q[0] = (e2[0] - e0[2]) / s;
+        q[1] = (e0[1] + e1[0]) / s;
+        q[2] = 0.25f * s;
+        q[3] = (e1[2] + e2[1]) / s;
+    }
+    else
+    {
+        float s = fsqrtf(1.0f + e2[2] - e0[0] - e1[1]) * 2.0f;
+        q[0] = (e0[1] - e1[0]) / s;
+        q[1] = (e2[0] + e0[2]) / s;
+        q[2] = (e1[2] + e2[1]) / s;
+        q[3] = 0.25f * s;
+    }
+    q_nrm(q, q);
+}
+
 /*---------------------------------------------------------------------------*/
