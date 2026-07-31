@@ -181,6 +181,20 @@ static void get_move_transform(const struct s_vary *vary, int mi, float dt, stru
     if (rot_out)
         *rot_out = ROT_IDENTITY;
 
+    if (mi == PATH_PENDULUM)
+    {
+        if (rot_out && vary->uc > 0 && vary->uv)
+        {
+            float q[4];
+            q_by_basis(q, vary->uv[0].E[0], vary->uv[0].E[1], vary->uv[0].E[2]);
+            rot_out->w = q[0];
+            rot_out->x = q[1];
+            rot_out->y = q[2];
+            rot_out->z = q[3];
+        }
+        return;
+    }
+
     if (mi < 0 || mi >= vary->mc)
         return;
 
@@ -232,7 +246,7 @@ void sol_body_p(float p[3],
                 int mi,
                 float dt)
 {
-    if (mi >= 0)
+    if (mi >= 0 || mi == PATH_PENDULUM)
     {
         struct vec3 pos;
 
@@ -281,7 +295,7 @@ void sol_body_e(float e[4],
                 int mi,
                 float dt)
 {
-    if (mi >= 0)
+    if (mi >= 0 || mi == PATH_PENDULUM)
     {
         struct vec4 rot;
 
@@ -306,6 +320,9 @@ void sol_body_e(float e[4],
  */
 int sol_body_w(const struct s_vary *vary, int mi)
 {
+    if (mi == PATH_PENDULUM)
+        return 1;
+
     if (mi >= 0)
     {
         const struct v_move *mp = vary->mv + mi;
@@ -326,7 +343,7 @@ void sol_entity_p(float p[3],
                   const struct s_vary *vary,
                   int mi, int mj)
 {
-    if (mj < 0)
+    if (mj < 0 && mj != PATH_PENDULUM)
         mj = mi;
 
     sol_body_p(p, vary, mi, 0.0f);
@@ -334,7 +351,7 @@ void sol_entity_p(float p[3],
 
 void sol_entity_e(float e[4], const struct s_vary *vary, int mi, int mj)
 {
-    if (mj < 0)
+    if (mj < 0 && mj != PATH_PENDULUM)
         mj = mi;
 
     sol_body_e(e, vary, mj, 0.0f);

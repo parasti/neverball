@@ -164,6 +164,7 @@ void   m_vxfm3d(double v[3], const double M[9], const double w[3]);
 
 void q_as_axisangle(const float q[4], float u[3], float *a);
 void q_by_axisangle(float q[4], const float u[3], float a);
+void q_by_basis(float q[4], const float e0[3], const float e1[3], const float e2[3]);
 
 void q_nrm(float q[4], const float r[4]);
 void q_mul(float q[4], const float a[4], const float b[4]);
